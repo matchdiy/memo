@@ -479,36 +479,35 @@ include/            # Top-level include directory. Client applications should ta
 * class DefaultGemmUniversal<>
   * cutlass/gemm/kernel/default_gemm_universal.h
   * Partial specialization
-    * define Complex = typename platform::enable_if<cutlass::is_complex<_ElementAccumulator_>::value>::type
-    * define Real = !Complex
+    * define COMPLEX_TRUE = typename platform::enable_if<cutlass::is_complex<_ElementAccumulator_>::value>::type
 
-  | |Define                        |Real                   |Complex           |
-  |-|------------------------------|-----------------------|------------------|
-  | |typename ElementA_            |ElementA               |ElementA          |
-  | |typename LayoutA_             |LayoutA                |LayoutA           |
-  | |ComplexTransform TransformA   |ComplexTransform::kNone|TransformA        |
-  | |int kAlignmentA               |kAlignmentA            |kAlignmentA       |
-  | |typename ElementB_            |ElementB               |ElementB          |
-  | |typename LayoutB_             |LayoutB                |LayoutB           |
-  | |ComplexTransform TransformB   |ComplexTransform::kNone|TransformB        |
-  | |int kAlignmentB               |kAlignmentB            |kAlignmentB       |
-  | |typename ElementC_            |ElementC               |ElementC          |
-  | |typename LayoutC_             |LayoutC                |LayoutC           |
-  | |typename ElementAccumulator   |ElementAccumulator     |ElementAccumulator|
-  | |typename OperatorClass        |OperatorClass          |OperatorClass     |
-  | |typename ArchTag              |ArchTag                |ArchTag           |
-  | |typename ThreadblockShape     |ThreadblockShape       |ThreadblockShape  |
-  | |typename WarpShape            |WarpShape              |WarpShape         |
-  | |typename InstructionShape     |InstructionShape       |InstructionShape  |
-  | |typename EpilogueOutputOp     |EpilogueOutputOp       |EpilogueOutputOp  |
-  | |typename ThreadblockSwizzle   |ThreadblockSwizzle     |ThreadblockSwizzle|
-  | |int Stages                    |Stages                 |Stages            |
-  | |typename Operator             |Operator               |Operator          |
-  | |SharedMemoryClearOption::kNone|SharedMemoryClear      |SharedMemoryClear |
-  | |bool GatherA = false          |GatherA                |false             |
-  | |bool GatherB = false          |GatherB                |false             |
-  | |bool ScatterD = false         |ScatterD               |false             |
-  |*|typename Enable = void        |false                  |true              |
+  | |Define                        |Real                         |Complex           |
+  |-|------------------------------|-----------------------------|------------------|
+  | |typename ElementA_            |ElementA                     |ElementA          |
+  | |typename LayoutA_             |LayoutA                      |LayoutA           |
+  |*|ComplexTransform TransformA   |___ComplexTransform::kNone___|___TransformA___  |
+  | |int kAlignmentA               |kAlignmentA                  |kAlignmentA       |
+  | |typename ElementB_            |ElementB                     |ElementB          |
+  | |typename LayoutB_             |LayoutB                      |LayoutB           |
+  |*|ComplexTransform TransformB   |___ComplexTransform::kNone___|___TransformB___  |
+  | |int kAlignmentB               |kAlignmentB                  |kAlignmentB       |
+  | |typename ElementC_            |ElementC                     |ElementC          |
+  | |typename LayoutC_             |LayoutC                      |LayoutC           |
+  | |typename ElementAccumulator   |ElementAccumulator           |ElementAccumulator|
+  | |typename OperatorClass        |OperatorClass                |OperatorClass     |
+  | |typename ArchTag              |ArchTag                      |ArchTag           |
+  | |typename ThreadblockShape     |ThreadblockShape             |ThreadblockShape  |
+  | |typename WarpShape            |WarpShape                    |WarpShape         |
+  | |typename InstructionShape     |InstructionShape             |InstructionShape  |
+  | |typename EpilogueOutputOp     |EpilogueOutputOp             |EpilogueOutputOp  |
+  | |typename ThreadblockSwizzle   |ThreadblockSwizzle           |ThreadblockSwizzle|
+  | |int Stages                    |Stages                       |Stages            |
+  | |typename Operator             |Operator                     |Operator          |
+  | |SharedMemoryClearOption::kNone|SharedMemoryClear            |SharedMemoryClear |
+  | |bool GatherA = false          |GatherA                      |false             |
+  | |bool GatherB = false          |GatherB                      |false             |
+  | |bool ScatterD = false         |ScatterD                     |false             |
+  |*|typename Enable = void        |!COMPLEX_TRUE                |COMPLEX_TRUE      |
 
 #### 3.2.1 cutlass::gemm::kernel::DefaultGemm
 
@@ -615,4 +614,195 @@ include/            # Top-level include directory. Client applications should ta
 
 #### 3.2.2 cutlass::gemm::kernel::DefaultGemmComplex
 
-略
+略。
+
+#### 3.3 cutlass::gemm::kernel::DefaultGemm Implement
+
+#### 3.3.1 MMA (cutlass::gemm::threadblock::DefaultMma)
+
+* partial specialization
+  * 
+  * 
+
+* define NO_CLEAR=SharedMemoryClearOption::kNone
+* define CMIK=layout::ColumnMajorInterleaved<_InterleavedK_>
+
+  | |Define                           |        Cuda Core      | Tensor Core               | Tensor Core FP32          |                  |           |
+  |-|---------------------------------|-----------------------|---------------------------|---------------------------|------------------|------------------|
+  |*|typename ElementA_               |ElementA               |ElementA                   |___float___                |ElementA          |ElementA               |
+  | |typename LayoutA_                |LayoutA                |LayoutA                    |LayoutA                    |LayoutA           |LayoutA                |
+  | |int kAlignmentA                  |kAlignmentA            |kAlignmentA                |kAlignmentA                |kAlignmentA       |kAlignmentA            |
+  |*|typename ElementB_               |ElementB               |ElementB                   |___float___                |ElementB          |ElementB               |
+  | |typename LayoutB_                |LayoutB                |LayoutB                    |LayoutB                    |LayoutB           |LayoutB                |
+  | |int kAlignmentB                  |kAlignmentB            |kAlignmentB                |kAlignmentB                |kAlignmentB       |kAlignmentB            |
+  |*|typename ElementAccumulator_     |ElementAccumulator     |ElementAccumulator         |___float___                |ElementAccumulator|ElementAccumulator     |
+  |*|typename LayoutC_                |LayoutC                |___layout::RowMajor___     |___layout::RowMajor___     |___CMIK___        |LayoutC                |
+  |*|typename OperatorClass_          |___arch::OpClassSimt___|___arch::OpClassTensorOp___|___arch::OpClassTensorOp___|OperatorClass     |___arch::OpClassSimt___|
+  | |typename ArchTag_                |ArchTag                |ArchTag                    |ArchTag                    |ArchTag           |ArchTag                |
+  | |typename ThreadblockShape_       |ThreadblockShape       |ThreadblockShape           |ThreadblockShape           |ThreadblockShape  |ThreadblockShape       |
+  | |typename WarpShape_              |WarpShape              |WarpShape                  |WarpShape                  |WarpShape         |WarpShape              |
+  | |typename InstructionShape_       |InstructionShape       |InstructionShape           |InstructionShape           |InstructionShape  |InstructionShape       |
+  |*|int Stages                       |2                      |2                          |2                          |2                 |Stages                 |
+  | |typename Operator                |Operator               |Operator                   |Operator                   |Operator          |Operator               |
+  |*|bool AccumulatorsInRowMajor=false|false                  |false                      |false                      |___true___        |false                  |
+  | |SharedMemoryClearOption::kNone   |NO_CLEAR               |NO_CLEAR                   |NO_CLEAR                   |NO_CLEAR          |NO_CLEAR               |
+  | |bool GatherA = false             |GatherA                |GatherA                    |GatherA                    |false             |GatherA                |
+  | |bool GatherB = false             |GatherB                |GatherB                    |GatherB                    |false             |GatherB                |
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### 3.3.2 Epilogue
+
+
+
+#### 3.3.3 GemmKernel
+
+
+
+
+
+
+|item|dorado 1c|pavo 1c|
+|----|---------|-------|
+|L3-LHS |  192 |     96|
+|L1-LHS |   16 |     16|
+|L3 BW  |  400G|   400G|
+|csb-size | 8M |     2M|
+|csb-bank |  3 |      3|
+|sip nums |  12|      6|
+|sip freq |1.3G|   1.3G|
+|cdma engien |  4|    4|
+|duration |same|  same |
+
+* 上面的实验说明这是一个sip bound的计算， dorado 和 pavo是同等水平的性能。
