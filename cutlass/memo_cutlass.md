@@ -474,14 +474,14 @@ include/            # Top-level include directory. Client applications should ta
     *               # core vocabulary types and fundamental arithmetic operators
 ```
 
-### 3.2 cutlass::gemm::kernel::DefaultGemmUniversal
+### 3.2 cutlass::gemm::kernel::DefaultGemmUniversal Implement
 
-* class DefaultGemmUniversal<>
+* class DefaultGemmUniversal
   * cutlass/gemm/kernel/default_gemm_universal.h
   * Partial specialization
     * define COMPLEX_TRUE = typename platform::enable_if<cutlass::is_complex<_ElementAccumulator_>::value>::type
 
-  | |Define                        |Real                         |Complex           |
+  | |DefaultGemmUniversal<>        | Real                        |Complex           |
   |-|------------------------------|-----------------------------|------------------|
   | |typename ElementA_            |ElementA                     |ElementA          |
   | |typename LayoutA_             |LayoutA                      |LayoutA           |
@@ -618,191 +618,240 @@ include/            # Top-level include directory. Client applications should ta
 
 #### 3.3 cutlass::gemm::kernel::DefaultGemm Implement
 
+```./cutlass/include/cutlass/gemm/kernel/default_gemm.h```
+
 #### 3.3.1 MMA (cutlass::gemm::threadblock::DefaultMma)
 
 * partial specialization
-  * 
-  * 
-
-* define NO_CLEAR=SharedMemoryClearOption::kNone
-* define CMIK=layout::ColumnMajorInterleaved<_InterleavedK_>
-
-  | |Define                           |        Cuda Core      | Tensor Core               | Tensor Core FP32          |                  |           |
-  |-|---------------------------------|-----------------------|---------------------------|---------------------------|------------------|------------------|
-  |*|typename ElementA_               |ElementA               |ElementA                   |___float___                |ElementA          |ElementA               |
-  | |typename LayoutA_                |LayoutA                |LayoutA                    |LayoutA                    |LayoutA           |LayoutA                |
-  | |int kAlignmentA                  |kAlignmentA            |kAlignmentA                |kAlignmentA                |kAlignmentA       |kAlignmentA            |
-  |*|typename ElementB_               |ElementB               |ElementB                   |___float___                |ElementB          |ElementB               |
-  | |typename LayoutB_                |LayoutB                |LayoutB                    |LayoutB                    |LayoutB           |LayoutB                |
-  | |int kAlignmentB                  |kAlignmentB            |kAlignmentB                |kAlignmentB                |kAlignmentB       |kAlignmentB            |
-  |*|typename ElementAccumulator_     |ElementAccumulator     |ElementAccumulator         |___float___                |ElementAccumulator|ElementAccumulator     |
-  |*|typename LayoutC_                |LayoutC                |___layout::RowMajor___     |___layout::RowMajor___     |___CMIK___        |LayoutC                |
-  |*|typename OperatorClass_          |___arch::OpClassSimt___|___arch::OpClassTensorOp___|___arch::OpClassTensorOp___|OperatorClass     |___arch::OpClassSimt___|
-  | |typename ArchTag_                |ArchTag                |ArchTag                    |ArchTag                    |ArchTag           |ArchTag                |
-  | |typename ThreadblockShape_       |ThreadblockShape       |ThreadblockShape           |ThreadblockShape           |ThreadblockShape  |ThreadblockShape       |
-  | |typename WarpShape_              |WarpShape              |WarpShape                  |WarpShape                  |WarpShape         |WarpShape              |
-  | |typename InstructionShape_       |InstructionShape       |InstructionShape           |InstructionShape           |InstructionShape  |InstructionShape       |
-  |*|int Stages                       |2                      |2                          |2                          |2                 |Stages                 |
-  | |typename Operator                |Operator               |Operator                   |Operator                   |Operator          |Operator               |
-  |*|bool AccumulatorsInRowMajor=false|false                  |false                      |false                      |___true___        |false                  |
-  | |SharedMemoryClearOption::kNone   |NO_CLEAR               |NO_CLEAR                   |NO_CLEAR                   |NO_CLEAR          |NO_CLEAR               |
-  | |bool GatherA = false             |GatherA                |GatherA                    |GatherA                    |false             |GatherA                |
-  | |bool GatherB = false             |GatherB                |GatherB                    |GatherB                    |false             |GatherB                |
-  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  * CudaCore_CRowMajorWith2Stage
+  * CudaCore_CRowMajorMultiStage
+  * CudaCore_CRowMajorDP4A
+  * TensorCore_CRowMajor
+  * TensorCore_CRowMajorFloat32
+  * TensorCore_CRowMajorMultiStage
+  * CMIK_With2Stage
+  * CMIK_MultiStage
+  * WMMA_2Stage
+  * WMMA_1Stage
+
+* define
+  * define NONE_CLEAR=SharedMemoryClearOption::kNone
+  * define CMIK=layout::ColumnMajorInterleaved<_InterleavedK_>
+
+* Cuda Core(SIMT)
+
+  ```C++
+    static_assert(platform::is_same<LayoutC, layout::RowMajor>::value
+              || platform::is_same<LayoutC, layout::AffineRankN<2>>::value,
+              "simt epilogue must be row major");
+  ```
+
+  | |DefaultMma<>                     | Cuda-Core-2-Stage     | Cuda-Core-MultiStage  |           DP4A         |
+  |-|---------------------------------|-----------------------|-----------------------|------------------------|
+  | |typename ElementA_               |ElementA               |ElementA               |int8_t                  |
+  | |typename LayoutA_                |LayoutA                |LayoutA                |LayoutA                 |
+  | |int kAlignmentA                  |kAlignmentA            |kAlignmentA            |kAlignmentA             |
+  | |typename ElementB_               |ElementB               |ElementB               |int8_t                  |
+  | |typename LayoutB_                |LayoutB                |LayoutB                |LayoutB                 |
+  | |int kAlignmentB                  |kAlignmentB            |kAlignmentB            |kAlignmentB             |
+  | |typename ElementAccumulator_     |ElementAccumulator     |ElementAccumulator     |ElementAccumulator      |
+  | |typename LayoutC_                |LayoutC                |LayoutC                |layout::RowMajor        |
+  |*|typename OperatorClass_          |___arch::OpClassSimt___|___arch::OpClassSimt___|___arch::OpClassSimt___ |
+  | |typename ArchTag_                |ArchTag                |ArchTag                |ArchTag                 |
+  | |typename ThreadblockShape_       |ThreadblockShape       |ThreadblockShape       |ThreadblockShape        |
+  | |typename WarpShape_              |WarpShape              |WarpShape              |WarpShape               |
+  | |typename InstructionShape_       |InstructionShape       |InstructionShape       |___GemmShape<1 1 4>___  |
+  |*|int Stages                       |___2___                |Stages                 |___2___                 |
+  | |typename Operator                |Operator               |Operator               |Operator                |
+  | |bool AccumulatorsInRowMajor=false|false                  |false                  |false                   |
+  | |SharedMemoryClearOption::kNone   |NONE_CLEAR               |NONE_CLEAR               |NONE_CLEAR                |
+  | |bool GatherA = false             |GatherA                |GatherA                |false                   |
+  | |bool GatherB = false             |GatherB                |GatherB                |false                   |
+
+* Tensor Core
+
+  | |DefaultMma<>                     | TensorCore RowMajor       | TensorCore RowMajor FP32  | TensorCore RowMajor MultiStage|
+  |-|---------------------------------|---------------------------|---------------------------|---------------------------|
+  |*|typename ElementA_               |ElementA                   |___float___                |ElementA                   |
+  | |typename LayoutA_                |LayoutA                    |LayoutA                    |LayoutA                    |
+  | |int kAlignmentA                  |kAlignmentA                |kAlignmentA                |kAlignmentA                |
+  |*|typename ElementB_               |ElementB                   |___float___                |ElementB                   |
+  | |typename LayoutB_                |LayoutB                    |LayoutB                    |LayoutB                    |
+  | |int kAlignmentB                  |kAlignmentB                |kAlignmentB                |kAlignmentB                |
+  |*|typename ElementAccumulator_     |ElementAccumulator         |___float___                |ElementAccumulator         |
+  |*|typename LayoutC_                |___layout::RowMajor___     |___layout::RowMajor___     |___LayoutC___              |
+  |*|typename OperatorClass_          |___arch::OpClassTensorOp___|___arch::OpClassTensorOp___|___arch::OpClassTensorOp___|
+  | |typename ArchTag_                |ArchTag                    |ArchTag                    |ArchTag                    |
+  | |typename ThreadblockShape_       |ThreadblockShape           |ThreadblockShape           |ThreadblockShape           |
+  | |typename WarpShape_              |WarpShape                  |WarpShape                  |WarpShape                  |
+  | |typename InstructionShape_       |InstructionShape           |InstructionShape           |InstructionShape           |
+  |*|int Stages                       |___2___                    |___2___                    |___Stages___               |
+  | |typename Operator                |Operator                   |Operator                   |Operator                   |
+  |*|bool AccumulatorsInRowMajor=false|false                      |false                      |false                      |
+  | |SharedMemoryClearOption::kNone   |NONE_CLEAR                   |NONE_CLEAR                   |___SharedMemoryClear___    |
+  | |bool GatherA = false             |GatherA                    |GatherA                    |GatherA                    |
+  | |bool GatherB = false             |GatherB                    |GatherB                    |GatherB                    |
+
+* CMIK(layout::ColumnMajorInterleaved<_InterleavedK_>)
+
+  | |DefaultMma<>                     | 2 Stage                   | MultiStage                |
+  |-|---------------------------------|---------------------------|---------------------------|
+  |*|typename ElementA_               |ElementA                   |ElementA                   |
+  | |typename LayoutA_                |LayoutA                    |LayoutA                    |
+  | |int kAlignmentA                  |kAlignmentA                |kAlignmentA                |
+  |*|typename ElementB_               |ElementB                   |ElementB                   |
+  | |typename LayoutB_                |LayoutB                    |LayoutB                    |
+  | |int kAlignmentB                  |kAlignmentB                |kAlignmentB                |
+  |*|typename ElementAccumulator_     |ElementAccumulator         |ElementAccumulator         |
+  |*|typename LayoutC_                |___CMIK___                 |___CMIK___                 |
+  |*|typename OperatorClass_          |___OperatorClass___        |___OperatorClass___        |
+  | |typename ArchTag_                |ArchTag                    |ArchTag                    |
+  | |typename ThreadblockShape_       |ThreadblockShape           |ThreadblockShape           |
+  | |typename WarpShape_              |WarpShape                  |WarpShape                  |
+  | |typename InstructionShape_       |InstructionShape           |InstructionShape           |
+  |*|int Stages                       |___2___                    |___Stages___               |
+  | |typename Operator                |Operator                   |Operator                   |
+  |*|bool AccumulatorsInRowMajor=false|___true___                 |___true___                 |
+  | |SharedMemoryClearOption::kNone   |NONE_CLEAR                 |NONE_CLEAR                 |
+  | |bool GatherA = false             |false                      |false                      |
+  | |bool GatherB = false             |false                      |false                      |
+
+* WMMA
+
+  | |DefaultMma<>                     |   2 stage        | 1 stage           |
+  |-|---------------------------------|------------------|-------------------|
+  |*|typename ElementA_               |ElementA          |ElementA           |
+  | |typename LayoutA_                |LayoutA           |LayoutA            |
+  | |int kAlignmentA                  |kAlignmentA       |kAlignmentA        |
+  |*|typename ElementB_               |ElementB          |ElementB           |
+  | |typename LayoutB_                |LayoutB           |LayoutB            |
+  | |int kAlignmentB                  |kAlignmentB       |kAlignmentB        |
+  |*|typename ElementAccumulator_     |ElementAccumulator|ElementAccumulator |
+  |*|typename LayoutC_                |LayoutC           |LayoutC            |
+  |*|typename OperatorClass_          |___arch::OpClassWmmaTensorOp___|___arch::OpClassWmmaTensorOp___|
+  | |typename ArchTag_                |ArchTag           |ArchTag            |
+  | |typename ThreadblockShape_       |ThreadblockShape  |ThreadblockShape   |
+  | |typename WarpShape_              |WarpShape         |WarpShape          |
+  | |typename InstructionShape_       |InstructionShape  |InstructionShape   |
+  |*|int Stages                       |___2___           |___1___            |
+  | |typename Operator                |Operator          |Operator           |
+  |*|bool AccumulatorsInRowMajor=false|false             |false              |
+  | |SharedMemoryClearOption::kNone   |NONE_CLEAR        |NONE_CLEAR         |
+  | |bool GatherA = false             |false             |false              |
+  | |bool GatherB = false             |false             |false              |
 
 #### 3.3.2 Epilogue
 
+* cutlass::epilogue::threadblock::DefaultEpilogueTensorOp
+* cutlass::epilogue::threadblock::DefaultEpilogueSimt
+* cutlass::epilogue::threadblock::DefaultEpilogueWmmaTensorOp
 
+No partial specification
 
 #### 3.3.3 GemmKernel
 
+```C++
+using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+```
 
+### 3.4 cutlass::gemm::threadblock::DefaultMma Implement
 
+SIMT DefaultMma example:
 
+```C++
+template< ... >
+struct DefaultMma<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB,
+                  kAlignmentB, ElementAccumulator, LayoutC,
+                  arch::OpClassSimt, ArchTag, ThreadblockShape, WarpShape,
+                  InstructionShape, 2, Operator, false, SharedMemoryClearOption::kNone,
+                  GatherA, GatherB> {
 
+  static_assert(platform::is_same<LayoutC, layout::RowMajor>::value
+             || platform::is_same<LayoutC, layout::AffineRankN<2>>::value,
+             "simt epilogue must be row major");
 
-|item|dorado 1c|pavo 1c|
-|----|---------|-------|
-|L3-LHS |  192 |     96|
-|L1-LHS |   16 |     16|
-|L3 BW  |  400G|   400G|
-|csb-size | 8M |     2M|
-|csb-bank |  3 |      3|
-|sip nums |  12|      6|
-|sip freq |1.3G|   1.3G|
-|cdma engien |  4|    4|
-|duration |same|  same |
+  // Define the MmaCore components
+  using MmaCore = typename cutlass::gemm::threadblock::DefaultMmaCore<
+      ThreadblockShape, WarpShape, InstructionShape, ElementA, LayoutA,
+      ElementB, LayoutB, ElementAccumulator, LayoutC,
+      arch::OpClassSimt, 2, Operator>;
 
-* 上面的实验说明这是一个sip bound的计算， dorado 和 pavo是同等水平的性能。
+  // Define iterators over tiles from the A operand
+  using IteratorA =
+      cutlass::transform::threadblock::PredicatedTileIterator<
+          cutlass::MatrixShape<MmaCore::Shape::kM, MmaCore::Shape::kK>,
+          ElementA, LayoutA, 1, typename MmaCore::IteratorThreadMapA, kAlignmentA, GatherA>;
+
+  // Define iterators over tiles from the B operand
+  using IteratorB =
+      cutlass::transform::threadblock::PredicatedTileIterator<
+          cutlass::MatrixShape<MmaCore::Shape::kK, MmaCore::Shape::kN>,
+          ElementB, LayoutB, 0, typename MmaCore::IteratorThreadMapB, kAlignmentB, GatherB>;
+
+  // Define the threadblock-scoped pipelined matrix multiply
+  using ThreadblockMma = cutlass::gemm::threadblock::MmaPipelined<
+      typename MmaCore::Shape, IteratorA, typename MmaCore::SmemIteratorA,
+      IteratorB, typename MmaCore::SmemIteratorB, ElementAccumulator,
+      LayoutC, typename MmaCore::MmaPolicy>;
+};
+```
+
+#### 3.4.1 cutlass::gemm::threadblock::DefaultMmaCore
+
+* Define
+
+  ```Text
+  ./cutlass/include/cutlass/gemm/threadblock/default_mma_core.h
+  ```
+
+* Partial specialization
+  
+  ```Text
+  ./cutlass/include/cutlass/gemm/threadblock/default_mma_core_simt.h
+  ./cutlass/include/cutlass/gemm/threadblock/default_mma_core_sm70.h
+  ./cutlass/include/cutlass/gemm/threadblock/default_mma_core_sm75.h
+  ./cutlass/include/cutlass/gemm/threadblock/default_mma_core_sm80.h
+  ./cutlass/include/cutlass/gemm/threadblock/default_mma_core_sparse_sm80.h
+  ./cutlass/include/cutlass/gemm/threadblock/default_mma_core_with_access_size.h
+  ./cutlass/include/cutlass/gemm/threadblock/default_mma_core_with_reducrtion.h
+  ./cutlass/include/cutlass/gemm/threadblock/default_mma_core_wmma.h
+  ```
+
+* Define
+  * MAC::Type:
+
+    ```C++
+    typename Operator = typename platform::conditional<
+    (platform::is_same<_OperatorClass_, _cutlass::arch::OpClassTensorOp_>::value) &&
+        ( platform::is_same<_ElementA_, int8_t>::value ||
+          platform::is_same<_ElementA_, int4b_t>::value ||
+          platform::is_same<_ElementA_, uint8_t>::value ||
+          platform::is_same<_ElementA_, uint4b_t>::value ),
+    cutlass::arch::OpMultiplyAddSaturate,
+    cutlass::arch::OpMultiplyAdd>::type,
+    ```
+
+  | |DefaultMmaCore<>             |           SIMT          |           SM70            |            SM75           |           SM80            |
+  |-|-----------------------------|-------------------------|---------------------------|---------------------------|---------------------------|
+  | |typename Shape (blockthread scope) |Shape              |Shape                      |Shape                      |Shape                      |
+  | |typename WarpShape           |WarpShape                |WarpShape                  |WarpShape                  |WarpShape                  |
+  |*|typename InstructionShape    |___GemmShape<1 1 1>___   |___GemmShape<8 8 4>___     |InstructionShape           |InstructionShape           |
+  | |typename ElementA            |ElementA                 |ElementA                   |ElementA                   |___double___               |
+  |*|typename LayoutA             |___layout::RowMajor___   |___layout::ColumnMajor___  |___layout::ColumnMajor___  |___layout::ColumnMajor___  |
+  | |typename ElementB            |ElementB                 |ElementB                   |ElementB                   |___double___               |
+  |*|typename LayoutB             |___layout::ColumnMajor___|___layout::RowMajor___     |___layout::RowMajor___     |___layout::ColumnMajor___  |
+  | |typename ElementC            |ElementC                 |ElementC                   |ElementC                   |___double___               |
+  | |typename LayoutC             |LayoutC                  |LayoutC                    |LayoutC                    |LayoutC                    |
+  |*|typename OperatorClass       |___arch::OpClassSimt___  |___arch::OpClassTensorOp___|___arch::OpClassTensorOp___|___arch::OpClassTensorOp___|
+  | |int Stages = 2               |2                        |2                          |2                          |Stages                     |
+  | |typename Operator = MAC::Type|Operator                 |Operator                   |Operator                   |Operator                   |
+  | |bool AccumulatorsInRowMajor = false|default|default|default|false|
+  | |cutlass::arch::CacheOperation::Kind CacheOpA = cutlass::arch::CacheOperation::Global|default|default|default|CacheOpA|
+  | |cutlass::arch::CacheOperation::Kind CacheOpB = cutlass::arch::CacheOperation::Global|default|default|default|CacheOpB|
+  | |bool IsComplex = false                               |default|default|default|default|
+  | |ComplexTransform TransformA = ComplexTransform::kNone|default|default|default|default|
+  | |ComplexTransform TransformB = ComplexTransform::kNone|default|default|default|default|
+
+#### 3.4.2 cutlass::transform::threadblock::PredicatedTileIterator
+
+#### 3.4.3 cutlass::gemm::threadblock::MmaPipelined
