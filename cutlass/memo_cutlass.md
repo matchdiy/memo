@@ -798,7 +798,7 @@ struct DefaultMma<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB,
 
 #### 3.4.1 cutlass::gemm::threadblock::DefaultMmaCore
 
-* Define
+* File
 
   ```Text
   ./cutlass/include/cutlass/gemm/threadblock/default_mma_core.h
@@ -831,26 +831,319 @@ struct DefaultMma<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB,
     cutlass::arch::OpMultiplyAdd>::type,
     ```
 
-  | |DefaultMmaCore<>             |           SIMT          |           SM70            |            SM75           |           SM80            |
-  |-|-----------------------------|-------------------------|---------------------------|---------------------------|---------------------------|
-  | |typename Shape (blockthread scope) |Shape              |Shape                      |Shape                      |Shape                      |
-  | |typename WarpShape           |WarpShape                |WarpShape                  |WarpShape                  |WarpShape                  |
-  |*|typename InstructionShape    |___GemmShape<1 1 1>___   |___GemmShape<8 8 4>___     |InstructionShape           |InstructionShape           |
-  | |typename ElementA            |ElementA                 |ElementA                   |ElementA                   |___double___               |
-  |*|typename LayoutA             |___layout::RowMajor___   |___layout::ColumnMajor___  |___layout::ColumnMajor___  |___layout::ColumnMajor___  |
-  | |typename ElementB            |ElementB                 |ElementB                   |ElementB                   |___double___               |
-  |*|typename LayoutB             |___layout::ColumnMajor___|___layout::RowMajor___     |___layout::RowMajor___     |___layout::ColumnMajor___  |
-  | |typename ElementC            |ElementC                 |ElementC                   |ElementC                   |___double___               |
-  | |typename LayoutC             |LayoutC                  |LayoutC                    |LayoutC                    |LayoutC                    |
-  |*|typename OperatorClass       |___arch::OpClassSimt___  |___arch::OpClassTensorOp___|___arch::OpClassTensorOp___|___arch::OpClassTensorOp___|
-  | |int Stages = 2               |2                        |2                          |2                          |Stages                     |
-  | |typename Operator = MAC::Type|Operator                 |Operator                   |Operator                   |Operator                   |
-  | |bool AccumulatorsInRowMajor = false|default|default|default|false|
-  | |cutlass::arch::CacheOperation::Kind CacheOpA = cutlass::arch::CacheOperation::Global|default|default|default|CacheOpA|
-  | |cutlass::arch::CacheOperation::Kind CacheOpB = cutlass::arch::CacheOperation::Global|default|default|default|CacheOpB|
-  | |bool IsComplex = false                               |default|default|default|default|
-  | |ComplexTransform TransformA = ComplexTransform::kNone|default|default|default|default|
-  | |ComplexTransform TransformB = ComplexTransform::kNone|default|default|default|default|
+  | |DefaultMmaCore<>                   |
+  |-|-----------------------------------|
+  | |typename Shape (blockthread scope) |
+  | |typename WarpShape                 |
+  |*|typename InstructionShape          |
+  | |typename ElementA                  |
+  |*|typename LayoutA                   |
+  | |typename ElementB                  |
+  |*|typename LayoutB                   |
+  | |typename ElementC                  |
+  | |typename LayoutC                   |
+  | |typename OperatorClass             |
+  | |int Stages = 2                     |
+  | |___typename Operator = MAC::Type___|
+  | |___bool AccumulatorsInRowMajor = false___|
+  | |___cutlass::arch::CacheOperation::Kind CacheOpA = cutlass::arch::CacheOperation::Global___|
+  | |___cutlass::arch::CacheOperation::Kind CacheOpB = cutlass::arch::CacheOperation::Global___|
+  | |___bool IsComplex = false___|
+  | |___ComplexTransform TransformA = ComplexTransform::kNone___|
+  | |___ComplexTransform TransformB = ComplexTransform::kNone___|
+
+* SIMT partial specialization
+
+  | | TT | NN | NT | TN |TT_A|NN_A|NT_A|TN_A|TT_IDP4A|NN_IDP4A|NT_IDP4A|TN_IDP4A|
+  |-|----|----|----|----|----|----|----|----|--------|--------|--------|--------|
+  | |Shape      |Shape      |Shape    |Shape      |Shape|Shape|Shape|Shape|Shape|Shape|Shape|Shape|
+  | |WarpShape  |WarpShape  |WarpShape|WarpShape  |WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|
+  |*|GemmShape<1 1 1>|GemmShape<1 1 1>|GemmShape<1 1 1>|GemmShape<1 1 1>|GemmShape<1 1 1>|GemmShape<1 1 1>|GemmShape<1 1 1>|GemmShape<1 1 1>|GemmShape<1 1 4>|GemmShape<1 1 4>|GemmShape<1 1 4>|GemmShape<1 1 4>|
+  |*|ElementA   |ElementA   |ElementA |ElementA   |ElementA|ElementA|ElementA|ElementA|int8t|int8t|int8t|int8t|
+  |*|ColumnMajor|RowMajor   |RowMajor |ColumnMajor|AffineRank2ColumnMajor|AffineRank2RowMajor|AffineRank2RowMajor|AffineRank2ColumnMajor|ColumnMajor|RowMajor|RowMajor|ColumnMajor|
+  |*|ElementB   |ElementB   |ElementB |ElementB   |ElementB|ElementB|ElementB|ElementB|int8t|int8t|int8t|int8t|
+  |*|RowMajor   |ColumnMajor|RowMajor |ColumnMajor|AffineRank2RowMajor|AffineRank2ColumnMajor|AffineRank2RowMajor|AffineRank2ColumnMajor|RowMajor|ColumnMajor|RowMajor|ColumnMajor|
+  | |ElementC   |ElementC   |ElementC |ElementC   |ElementC|ElementC|ElementC|ElementC|ElementC|ElementC|ElementC|ElementC|
+  | |LayoutC    |LayoutC    |LayoutC  |LayoutC    |LayoutC|LayoutC|LayoutC|LayoutC|LayoutC|LayoutC|LayoutC|LayoutC|
+  | |OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|
+  | |2|2|2|2|2|2|2|2|2|2|2|2|
+  | |Operator|Operator|Operator|Operator|Operator|Operator|Operator|Operator|Operator|Operator|Operator|Operator|
+
+* SM70
+
+  | |       TT        |       NN        |       NT       |       TN        |
+  |-|-----------------|-----------------|----------------|-----------------|
+  | |Shape            |Shape            |Shape           |Shape            |
+  | |WarpShape        |WarpShape        |WarpShape       |WarpShape        |
+  | |GemmShape<8 8 4> |GemmShape<8 8 4> |GemmShape<8 8 4>|GemmShape<8 8 4> |
+  | |ElementA         |ElementA         |ElementA        |ElementA         |
+  |*|___ColumnMajor___|___RowMajor___   |___RowMajor___  |___ColumnMajor___|
+  | |ElementB         |ElementB         |ElementB        |ElementB         |
+  |*|___RowMajor___   |___ColumnMajor___|___RowMajor___  |___ColumnMajor___|
+  | |ElementC         |ElementC         |ElementC        |ElementC         |
+  | |LayoutC          |LayoutC          |LayoutC         |LayoutC          |
+  | |OpClassTensorOp  |OpClassTensorOp  |OpClassTensorOp |OpClassTensorOp  |
+  | |2                |2                |2               |2                |
+  | |Operator         |Operator         |Operator        |Operator         |
+
+* SM75
+
+  | | TT             | NN             | NT             | TN             | TT_FP32            | NN_FP32            | NT_FP32            | TT_CMIK              |
+  |-|----------------|----------------|----------------|----------------|--------------------|--------------------|--------------------|----------------------|
+  | |Shape           |Shape           |Shape           |Shape           |Shape               |Shape               |Shape               |Shape                 |
+  | |WarpShape       |WarpShape       |WarpShape       |WarpShape       |WarpShape           |WarpShape           |WarpShape           |WarpShape             |
+  | |InstructionShape|InstructionShape|InstructionShape|InstructionShape|InstructionShape    |InstructionShape    |InstructionShape    |InstructionShape      |
+  | |ElementA        |ElementA        |ElementA        |ElementA        |float               |float               |float               |ElementA              |
+  | |ColumnMajor     |RowMajor        |RowMajor        |ColumnMajor     |ColumnMajor         |RowMajor            |RowMajor            |ColumnMajorInterleaved<_InterleavedK_>|
+  | |ElementB        |ElementB        |ElementB        |ElementB        |float               |float               |float               |ElementB              |
+  | |RowMajor        |ColumnMajor     |RowMajor        |ColumnMajor     |RowMajor            |ColumnMajor         |RowMajor            |RowMajorInterleaved<_InterleavedK_>   |
+  | |ElementC        |ElementC        |ElementC        |ElementC        |float               |float               |float               |ElementC              |
+  | |LayoutC         |LayoutC         |LayoutC         |LayoutC         |LayoutC             |LayoutC             |LayoutC             |LayoutC               |
+  | |OpClassTensorOp |OpClassTensorOp |OpClassTensorOp |OpClassTensorOp |OpClassTensorOp     |OpClassTensorOp     |OpClassTensorOp     |arch::OpClassTensorOp |
+  | |2               |2               |2               |2               |2                   |2                   |2                   |2                     |
+  | |Operator        |Operator        |Operator        |Operator        |OpMultiplyAddFastF16|OpMultiplyAddFastF16|OpMultiplyAddFastF16|Operator              |
+  | |false           |false           |false           |false           |false               |false               |false               |AccumulatorsInRowMajor|
+
+* SM80
+  * SM80-FP64
+    | |TN_FP64    |TT_FP64    |NN_FP64    |NT_FP64    |TN_AFF_FP64           |TT_AFF_FP64           |NN_AFF_FP64           |NT_AFF_FP64       |
+    |-|-----------|-----------|-----------|-----------|----------------------|----------------------|----------------------|------------------|
+    | |Shape|Shape|Shape|Shape|Shape|Shape|Shape|Shape|
+    | |WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|
+    | |InstructionShape|InstructionShape|InstructionShape|InstructionShape|InstructionShape|InstructionShape|InstructionShape|InstructionShape |
+    | |double     |double     |double     |double     |double                |double                |double                |double             |
+    | |ColumnMajor|ColumnMajor|RowMajor   |RowMajor   |AffineRank2ColumnMajor|AffineRank2ColumnMajor|AffineRank2RowMajor   |AffineRank2RowMajor|
+    | |double     |double     |double     |double     |double                |double                |double                |double             |
+    | |ColumnMajor|RowMajor   |ColumnMajor|RowMajor   |AffineRank2ColumnMajor|AffineRank2RowMajor   |AffineRank2ColumnMajor|AffineRank2RowMajor|
+    | |double     |double     |double     |double     |double                |double                |double                |double             |
+    | |LayoutC|LayoutC|LayoutC|LayoutC|LayoutC|LayoutC|LayoutC|LayoutC|
+    | |OpClassTensorOp|OpClassTensorOp|OpClassTensorOp|OpClassTensorOp|OpClassTensorOp|OpClassTensorOp|OpClassTensorOp|OpClassTensorOp|
+    | |Stages|Stages|Stages|Stages|Stages|Stages|Stages|Stages|
+    | |Operator|Operator|Operator|Operator|Operator|Operator|Operator|Operator|
+    | |false|false|false|false|false|false|false|false|
+    | |CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|
+    | |CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|
+
+  * SM80-Complex
+    | |  Complex<_float_>     |   Complex<_double_>   |
+    |-|-----------------------|-----------------------|
+    | |Shape                  |Shape                  |
+    | |WarpShape              |WarpShape              |
+    |*|___GemmShape<16 8 8>___|___GemmShape<8 8 4>___ |
+    |*|___complex<_float_>___ |___complex<_double_>___|
+    | |LayoutA                |LayoutA                |
+    |*|___complex<_float_>___ |___complex<_double_>___|
+    | |LayoutB                |LayoutB                |
+    |*|___complex<_float_>___ |___complex<_double_>___|
+    | |LayoutC                |LayoutC                |
+    | |arch::OpClassTensorOp  |arch::OpClassTensorOp  |
+    | |Stages                 |Stages                 |
+    | |Operator               |Operator               |
+    | |false                  |false                  |
+    | |CacheOpA               |CacheOpA               |
+    | |CacheOpB               |CacheOpB               |
+    | |TransformA             |TransformA             |
+    | |TransformB             |TransformB             |
+    | |true                   |true                   |
+
+  * SM80-X
+
+Shape|Shape|
+WarpShape|WarpShape|
+InstructionShape|InstructionShape|
+ElementA|ElementA|
+ColumnMajor|RowMajor|
+ElementB|ElementB|
+RowMajor|ColumnMajor|
+ElementC|ElementC|
+LayoutC|LayoutC|
+arch::OpClassTensorOp|arch::OpClassTensorOp|
+Stages|Stages|
+Operator|Operator|
+false|false|
+CacheOpA|CacheOpA|
+CacheOpB|CacheOpB|
+
+
+
+Shape|
+WarpShape|
+InstructionShape|
+ElementA|
+ColumnMajor|
+ElementB|
+ColumnMajor|
+ElementC|
+LayoutC|
+arch::OpClassTensorOp|
+Stages|
+Operator|
+false|
+CacheOpA|
+CacheOpB|
+
+Shape|
+WarpShape|
+InstructionShape|
+ElementA|
+RowMajor|
+ElementB|
+RowMajor|
+ElementC|
+LayoutC|
+arch::OpClassTensorOp|
+Stages|
+Operator|
+false|
+CacheOpA|
+CacheOpB|
+
+Shape|
+WarpShape|
+InstructionShape|
+ElementA|
+ColumnMajorInterleaved<InterleavedK>|
+ElementB|
+RowMajorInterleaved<InterleavedK>|
+ElementC|
+LayoutC|
+arch::OpClassTensorOp|
+Stages|
+Operator|
+AccumulatorsInRowMajor|
+CacheOpA|
+CacheOpB|
+
+
+
+Shape_|
+WarpShape|
+InstructionShape|
+ElementA|
+ColumnMajor|
+ElementB|
+ColumnMajor|
+ElementC|
+LayoutC|
+arch::OpClassSimt|
+Stages|
+Operator|
+false|
+CacheOpA|
+CacheOpB|
+
+Shape|
+WarpShape|
+InstructionShape|
+ElementA|
+ColumnMajor|
+ElementB|
+RowMajor|
+ElementC|
+LayoutC|
+arch::OpClassSimt|
+Stages|
+Operator|
+false|
+CacheOpA|
+CacheOpB|
+
+Shape|
+WarpShape|
+InstructionShape|
+ElementA|
+RowMajor|
+ElementB|
+ColumnMajor|
+ElementC|
+LayoutC|
+arch::OpClassSimt|
+Stages|
+Operator|
+false|
+CacheOpA|
+CacheOpB|
+
+Shape|
+WarpShape|
+InstructionShape|
+ElementA|
+RowMajor|
+ElementB|
+RowMajor|
+ElementC|
+LayoutC|
+arch::OpClassSimt|
+Stages|
+Operator|
+false|
+CacheOpA|
+CacheOpB|
+
+Shape|
+WarpShape|
+InstructionShape|
+ElementA|
+AffineRank2ColumnMajor|
+ElementB|
+AffineRank2RowMajor|
+ElementC|
+LayoutC|
+arch::OpClassSimt|
+Stages|
+Operator|
+false|
+CacheOpA|
+CacheOpB|
+
+Shape|
+WarpShape|
+InstructionShape|
+ElementA|
+AffineRank2RowMajor|
+ElementB|
+AffineRank2ColumnMajor|
+ElementC|
+LayoutC|
+arch::OpClassSimt|
+Stages|
+Operator|
+false|
+CacheOpA|
+CacheOpB|
+
+Shape|
+WarpShape|
+InstructionShape|
+ElementA|
+AffineRank2ColumnMajor|
+ElementB|
+AffineRank2ColumnMajor|
+ElementC|
+LayoutC|
+arch::OpClassSimt|
+Stages|
+Operator|
+false|
+CacheOpA|
+CacheOpB|
+
+Shape|
+WarpShape|
+InstructionShape|
+ElementA|
+AffineRank2RowMajor|
+ElementB|
+AffineRank2RowMajor|
+ElementC|
+LayoutC|
+arch::OpClassSimt|
+Stages|
+Operator|
+false|
+CacheOpA|
+CacheOpB|
+
 
 #### 3.4.2 cutlass::transform::threadblock::PredicatedTileIterator
 
