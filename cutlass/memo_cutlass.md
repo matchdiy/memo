@@ -835,11 +835,11 @@ struct DefaultMma<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB,
   |-|-----------------------------------|
   | |typename Shape (blockthread scope) |
   | |typename WarpShape                 |
-  |*|typename InstructionShape          |
+  | |typename InstructionShape          |
   | |typename ElementA                  |
-  |*|typename LayoutA                   |
+  | |typename LayoutA                   |
   | |typename ElementB                  |
-  |*|typename LayoutB                   |
+  | |typename LayoutB                   |
   | |typename ElementC                  |
   | |typename LayoutC                   |
   | |typename OperatorClass             |
@@ -894,9 +894,9 @@ struct DefaultMma<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB,
   | |WarpShape       |WarpShape       |WarpShape       |WarpShape       |WarpShape           |WarpShape           |WarpShape           |WarpShape             |
   | |InstructionShape|InstructionShape|InstructionShape|InstructionShape|InstructionShape    |InstructionShape    |InstructionShape    |InstructionShape      |
   | |ElementA        |ElementA        |ElementA        |ElementA        |float               |float               |float               |ElementA              |
-  | |ColumnMajor     |RowMajor        |RowMajor        |ColumnMajor     |ColumnMajor         |RowMajor            |RowMajor            |ColumnMajorInterleaved<_InterleavedK_>|
+  |*|ColumnMajor     |RowMajor        |RowMajor        |ColumnMajor     |ColumnMajor         |RowMajor            |RowMajor            |ColumnMajorInterleaved<_InterleavedK_>|
   | |ElementB        |ElementB        |ElementB        |ElementB        |float               |float               |float               |ElementB              |
-  | |RowMajor        |ColumnMajor     |RowMajor        |ColumnMajor     |RowMajor            |ColumnMajor         |RowMajor            |RowMajorInterleaved<_InterleavedK_>   |
+  |*|RowMajor        |ColumnMajor     |RowMajor        |ColumnMajor     |RowMajor            |ColumnMajor         |RowMajor            |RowMajorInterleaved<_InterleavedK_>   |
   | |ElementC        |ElementC        |ElementC        |ElementC        |float               |float               |float               |ElementC              |
   | |LayoutC         |LayoutC         |LayoutC         |LayoutC         |LayoutC             |LayoutC             |LayoutC             |LayoutC               |
   | |OpClassTensorOp |OpClassTensorOp |OpClassTensorOp |OpClassTensorOp |OpClassTensorOp     |OpClassTensorOp     |OpClassTensorOp     |arch::OpClassTensorOp |
@@ -946,204 +946,43 @@ struct DefaultMma<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB,
     | |TransformB             |TransformB             |
     | |true                   |true                   |
 
-  * SM80-X
+  * SM80-Common
+    | |  TT |  NN |  TN | NT  | CMIK|
+    |-|-----|-----|-----|-----|-----|
+    | |Shape|Shape|Shape|Shape|Shape|
+    | |WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|
+    | |InstructionShape|InstructionShape|InstructionShape|InstructionShape|InstructionShape|
+    | |ElementA   |ElementA   |ElementA   |ElementA|ElementA|
+    | |ColumnMajor|RowMajor   |ColumnMajor|RowMajor|ColumnMajorInterleaved<_InterleavedK_>|
+    | |ElementB   |ElementB   |ElementB   |ElementB|ElementB|
+    | |RowMajor   |ColumnMajor|ColumnMajor|RowMajor|RowMajorInterleaved<_InterleavedK_>|
+    | |ElementC   |ElementC   |ElementC   |ElementC|ElementC|
+    | |LayoutC    |LayoutC    |LayoutC    |LayoutC |LayoutC |
+    | |arch::OpClassTensorOp|arch::OpClassTensorOp|arch::OpClassTensorOp|arch::OpClassTensorOp|arch::OpClassTensorOp|
+    | |Stages|Stages|Stages|Stages|Stages|
+    | |Operator|Operator|Operator|Operator|Operator|
+    | |false|false|false|false|AccumulatorsInRowMajor|
+    | |CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|
+    | |CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|
 
-Shape|Shape|
-WarpShape|WarpShape|
-InstructionShape|InstructionShape|
-ElementA|ElementA|
-ColumnMajor|RowMajor|
-ElementB|ElementB|
-RowMajor|ColumnMajor|
-ElementC|ElementC|
-LayoutC|LayoutC|
-arch::OpClassTensorOp|arch::OpClassTensorOp|
-Stages|Stages|
-Operator|Operator|
-false|false|
-CacheOpA|CacheOpA|
-CacheOpB|CacheOpB|
-
-
-
-Shape|
-WarpShape|
-InstructionShape|
-ElementA|
-ColumnMajor|
-ElementB|
-ColumnMajor|
-ElementC|
-LayoutC|
-arch::OpClassTensorOp|
-Stages|
-Operator|
-false|
-CacheOpA|
-CacheOpB|
-
-Shape|
-WarpShape|
-InstructionShape|
-ElementA|
-RowMajor|
-ElementB|
-RowMajor|
-ElementC|
-LayoutC|
-arch::OpClassTensorOp|
-Stages|
-Operator|
-false|
-CacheOpA|
-CacheOpB|
-
-Shape|
-WarpShape|
-InstructionShape|
-ElementA|
-ColumnMajorInterleaved<InterleavedK>|
-ElementB|
-RowMajorInterleaved<InterleavedK>|
-ElementC|
-LayoutC|
-arch::OpClassTensorOp|
-Stages|
-Operator|
-AccumulatorsInRowMajor|
-CacheOpA|
-CacheOpB|
-
-
-
-Shape_|
-WarpShape|
-InstructionShape|
-ElementA|
-ColumnMajor|
-ElementB|
-ColumnMajor|
-ElementC|
-LayoutC|
-arch::OpClassSimt|
-Stages|
-Operator|
-false|
-CacheOpA|
-CacheOpB|
-
-Shape|
-WarpShape|
-InstructionShape|
-ElementA|
-ColumnMajor|
-ElementB|
-RowMajor|
-ElementC|
-LayoutC|
-arch::OpClassSimt|
-Stages|
-Operator|
-false|
-CacheOpA|
-CacheOpB|
-
-Shape|
-WarpShape|
-InstructionShape|
-ElementA|
-RowMajor|
-ElementB|
-ColumnMajor|
-ElementC|
-LayoutC|
-arch::OpClassSimt|
-Stages|
-Operator|
-false|
-CacheOpA|
-CacheOpB|
-
-Shape|
-WarpShape|
-InstructionShape|
-ElementA|
-RowMajor|
-ElementB|
-RowMajor|
-ElementC|
-LayoutC|
-arch::OpClassSimt|
-Stages|
-Operator|
-false|
-CacheOpA|
-CacheOpB|
-
-Shape|
-WarpShape|
-InstructionShape|
-ElementA|
-AffineRank2ColumnMajor|
-ElementB|
-AffineRank2RowMajor|
-ElementC|
-LayoutC|
-arch::OpClassSimt|
-Stages|
-Operator|
-false|
-CacheOpA|
-CacheOpB|
-
-Shape|
-WarpShape|
-InstructionShape|
-ElementA|
-AffineRank2RowMajor|
-ElementB|
-AffineRank2ColumnMajor|
-ElementC|
-LayoutC|
-arch::OpClassSimt|
-Stages|
-Operator|
-false|
-CacheOpA|
-CacheOpB|
-
-Shape|
-WarpShape|
-InstructionShape|
-ElementA|
-AffineRank2ColumnMajor|
-ElementB|
-AffineRank2ColumnMajor|
-ElementC|
-LayoutC|
-arch::OpClassSimt|
-Stages|
-Operator|
-false|
-CacheOpA|
-CacheOpB|
-
-Shape|
-WarpShape|
-InstructionShape|
-ElementA|
-AffineRank2RowMajor|
-ElementB|
-AffineRank2RowMajor|
-ElementC|
-LayoutC|
-arch::OpClassSimt|
-Stages|
-Operator|
-false|
-CacheOpA|
-CacheOpB|
-
+  * SM80-SIMT
+    | |TN   |TT   |NN   |NT   |TN_A |TT_A |NN_A |NT_A |
+    |-|-----|-----|-----|-----|-----|-----|-----|-----|
+    | |Shape|Shape|Shape|Shape|Shape|Shape|Shape|Shape|
+    | |WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|
+    | |InstructionShape|InstructionShape|InstructionShape|InstructionShape|InstructionShape|InstructionShape|InstructionShape|InstructionShape|
+    | |ElementA|ElementA|ElementA|ElementA|ElementA|ElementA|ElementA|ElementA|
+    | |ColumnMajor|ColumnMajor|RowMajor|RowMajor|AffineRank2ColumnMajor|AffineRank2RowMajor|AffineRank2ColumnMajor|AffineRank2RowMajor|
+    | |ElementB|ElementB|ElementB|ElementB|ElementB|ElementB|ElementB|ElementB|
+    | |ColumnMajor|RowMajor|ColumnMajor|RowMajor|AffineRank2RowMajor|AffineRank2ColumnMajor|AffineRank2ColumnMajor|AffineRank2RowMajor|
+    | |ElementC|ElementC|ElementC|ElementC|ElementC|ElementC|ElementC|ElementC|
+    | |LayoutC|LayoutC|LayoutC|LayoutC|LayoutC|LayoutC|LayoutC|LayoutC|
+    | |OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|
+    | |Stages|Stages|Stages|Stages|Stages|Stages|Stages|Stages|
+    | |Operator|Operator|Operator|Operator|Operator|Operator|Operator|Operator|
+    | |false|false|false|false|false|false|false|false|
+    | |CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|
+    | |CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|
 
 #### 3.4.2 cutlass::transform::threadblock::PredicatedTileIterator
 
