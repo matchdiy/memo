@@ -474,7 +474,9 @@ include/            # Top-level include directory. Client applications should ta
     *               # core vocabulary types and fundamental arithmetic operators
 ```
 
-### 3.2 cutlass::gemm::kernel::DefaultGemmUniversal Implement
+### 3.2 Class Partial Specialization
+
+#### 3.2.1 cutlass::gemm::kernel::DefaultGemmUniversal Implement
 
 * class DefaultGemmUniversal
   * cutlass/gemm/kernel/default_gemm_universal.h
@@ -509,7 +511,7 @@ include/            # Top-level include directory. Client applications should ta
   | |bool ScatterD = false         |ScatterD                     |false             |
   |*|typename Enable = void        |!COMPLEX_TRUE                |COMPLEX_TRUE      |
 
-#### 3.2.1 cutlass::gemm::kernel::DefaultGemm
+#### 3.2.2 cutlass::gemm::kernel::DefaultGemm
 
 * Partial Specialization
   * SM80_TENSOR_CORE
@@ -612,15 +614,7 @@ include/            # Top-level include directory. Client applications should ta
   | |bool ScatterD = false         |ScatterD                |ScatterD               |false                  |    |
   | |typename Enable = void        |NOT_SM80                |                       |                       |    |
 
-#### 3.2.2 cutlass::gemm::kernel::DefaultGemmComplex
-
-略。
-
-#### 3.3 cutlass::gemm::kernel::DefaultGemm Implement
-
-```./cutlass/include/cutlass/gemm/kernel/default_gemm.h```
-
-#### 3.3.1 MMA (cutlass::gemm::threadblock::DefaultMma)
+#### 3.2.3 cutlass::gemm::threadblock::DefaultMma
 
 * partial specialization
   * CudaCore_CRowMajorWith2Stage
@@ -740,63 +734,7 @@ include/            # Top-level include directory. Client applications should ta
   | |bool GatherA = false             |false             |false              |
   | |bool GatherB = false             |false             |false              |
 
-#### 3.3.2 Epilogue
-
-* cutlass::epilogue::threadblock::DefaultEpilogueTensorOp
-* cutlass::epilogue::threadblock::DefaultEpilogueSimt
-* cutlass::epilogue::threadblock::DefaultEpilogueWmmaTensorOp
-
-No partial specification
-
-#### 3.3.3 GemmKernel
-
-```C++
-using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
-```
-
-### 3.4 cutlass::gemm::threadblock::DefaultMma Implement
-
-SIMT DefaultMma example:
-
-```C++
-template< ... >
-struct DefaultMma<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB,
-                  kAlignmentB, ElementAccumulator, LayoutC,
-                  arch::OpClassSimt, ArchTag, ThreadblockShape, WarpShape,
-                  InstructionShape, 2, Operator, false, SharedMemoryClearOption::kNone,
-                  GatherA, GatherB> {
-
-  static_assert(platform::is_same<LayoutC, layout::RowMajor>::value
-             || platform::is_same<LayoutC, layout::AffineRankN<2>>::value,
-             "simt epilogue must be row major");
-
-  // Define the MmaCore components
-  using MmaCore = typename cutlass::gemm::threadblock::DefaultMmaCore<
-      ThreadblockShape, WarpShape, InstructionShape, ElementA, LayoutA,
-      ElementB, LayoutB, ElementAccumulator, LayoutC,
-      arch::OpClassSimt, 2, Operator>;
-
-  // Define iterators over tiles from the A operand
-  using IteratorA =
-      cutlass::transform::threadblock::PredicatedTileIterator<
-          cutlass::MatrixShape<MmaCore::Shape::kM, MmaCore::Shape::kK>,
-          ElementA, LayoutA, 1, typename MmaCore::IteratorThreadMapA, kAlignmentA, GatherA>;
-
-  // Define iterators over tiles from the B operand
-  using IteratorB =
-      cutlass::transform::threadblock::PredicatedTileIterator<
-          cutlass::MatrixShape<MmaCore::Shape::kK, MmaCore::Shape::kN>,
-          ElementB, LayoutB, 0, typename MmaCore::IteratorThreadMapB, kAlignmentB, GatherB>;
-
-  // Define the threadblock-scoped pipelined matrix multiply
-  using ThreadblockMma = cutlass::gemm::threadblock::MmaPipelined<
-      typename MmaCore::Shape, IteratorA, typename MmaCore::SmemIteratorA,
-      IteratorB, typename MmaCore::SmemIteratorB, ElementAccumulator,
-      LayoutC, typename MmaCore::MmaPolicy>;
-};
-```
-
-#### 3.4.1 cutlass::gemm::threadblock::DefaultMmaCore
+#### 3.2.4 cutlass::gemm::threadblock::DefaultMmaCore
 
 * File
 
@@ -905,7 +843,7 @@ struct DefaultMma<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB,
   | |false           |false           |false           |false           |false               |false               |false               |AccumulatorsInRowMajor|
 
 * SM80
-  * SM80-FP64
+  * SM80-FP64-TensorCore
     | |TN_FP64    |TT_FP64    |NN_FP64    |NT_FP64    |TN_AFF_FP64           |TT_AFF_FP64           |NN_AFF_FP64           |NT_AFF_FP64       |
     |-|-----------|-----------|-----------|-----------|----------------------|----------------------|----------------------|------------------|
     | |Shape|Shape|Shape|Shape|Shape|Shape|Shape|Shape|
@@ -924,7 +862,7 @@ struct DefaultMma<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB,
     | |CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|
     | |CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|
 
-  * SM80-Complex
+  * SM80-Complex-TensorCore
     | |  Complex<_float_>     |   Complex<_double_>   |
     |-|-----------------------|-----------------------|
     | |Shape                  |Shape                  |
@@ -947,43 +885,195 @@ struct DefaultMma<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB,
     | |true                   |true                   |
 
   * SM80-Common
-    | |  TT |  NN |  TN | NT  | CMIK|
-    |-|-----|-----|-----|-----|-----|
-    | |Shape|Shape|Shape|Shape|Shape|
-    | |WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|
-    | |InstructionShape|InstructionShape|InstructionShape|InstructionShape|InstructionShape|
-    | |ElementA   |ElementA   |ElementA   |ElementA|ElementA|
-    | |ColumnMajor|RowMajor   |ColumnMajor|RowMajor|ColumnMajorInterleaved<_InterleavedK_>|
-    | |ElementB   |ElementB   |ElementB   |ElementB|ElementB|
-    | |RowMajor   |ColumnMajor|ColumnMajor|RowMajor|RowMajorInterleaved<_InterleavedK_>|
-    | |ElementC   |ElementC   |ElementC   |ElementC|ElementC|
-    | |LayoutC    |LayoutC    |LayoutC    |LayoutC |LayoutC |
-    | |arch::OpClassTensorOp|arch::OpClassTensorOp|arch::OpClassTensorOp|arch::OpClassTensorOp|arch::OpClassTensorOp|
-    | |Stages|Stages|Stages|Stages|Stages|
-    | |Operator|Operator|Operator|Operator|Operator|
-    | |false|false|false|false|AccumulatorsInRowMajor|
-    | |CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|
-    | |CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|
+    * TensorCore: NN/NT/TN/TT/CMIK
+    * CudaCore: NN/NT/TN/TT/NN_AFF/NT_AFF/TN_AFF/TT_AFF
 
-  * SM80-SIMT
-    | |TN   |TT   |NN   |NT   |TN_A |TT_A |NN_A |NT_A |
-    |-|-----|-----|-----|-----|-----|-----|-----|-----|
-    | |Shape|Shape|Shape|Shape|Shape|Shape|Shape|Shape|
-    | |WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|WarpShape|
-    | |InstructionShape|InstructionShape|InstructionShape|InstructionShape|InstructionShape|InstructionShape|InstructionShape|InstructionShape|
-    | |ElementA|ElementA|ElementA|ElementA|ElementA|ElementA|ElementA|ElementA|
-    | |ColumnMajor|ColumnMajor|RowMajor|RowMajor|AffineRank2ColumnMajor|AffineRank2RowMajor|AffineRank2ColumnMajor|AffineRank2RowMajor|
-    | |ElementB|ElementB|ElementB|ElementB|ElementB|ElementB|ElementB|ElementB|
-    | |ColumnMajor|RowMajor|ColumnMajor|RowMajor|AffineRank2RowMajor|AffineRank2ColumnMajor|AffineRank2ColumnMajor|AffineRank2RowMajor|
-    | |ElementC|ElementC|ElementC|ElementC|ElementC|ElementC|ElementC|ElementC|
-    | |LayoutC|LayoutC|LayoutC|LayoutC|LayoutC|LayoutC|LayoutC|LayoutC|
-    | |OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|OpClassSimt|
-    | |Stages|Stages|Stages|Stages|Stages|Stages|Stages|Stages|
-    | |Operator|Operator|Operator|Operator|Operator|Operator|Operator|Operator|
-    | |false|false|false|false|false|false|false|false|
-    | |CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|CacheOpA|
-    | |CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|CacheOpB|
+#### 3.2.5 cutlass::transform::threadblock::PredicatedTileIterator
 
-#### 3.4.2 cutlass::transform::threadblock::PredicatedTileIterator
+略
 
-#### 3.4.3 cutlass::gemm::threadblock::MmaPipelined
+#### 3.2.6 cutlass::gemm::threadblock::MmaPipelined
+
+核心计算：
+
+```C++
+/// Construct from tensor references
+  CUTLASS_DEVICE
+  MmaPipelined(
+    typename Base::SharedStorage &shared_storage,       ///< Shared storage needed for internal use by threadblock-scoped GEMM
+    int thread_idx,                                     ///< ID within the threadblock
+    int warp_idx,                                       ///< ID of warp
+    int lane_idx                                        ///< ID of each thread within a warp
+  ):
+    Base(shared_storage, thread_idx, warp_idx, lane_idx),
+    smem_iterator_A_(shared_storage.operand_A_ref(), thread_idx),
+    smem_iterator_B_(shared_storage.operand_B_ref(), thread_idx) {
+    DUMP printf("MmaPipelined Enter: Base::WarpCount<%d, %d, %d> Warp%d\n", 
+        Base::WarpCount::kM, Base::WarpCount::kN, Base::WarpCount::kK, warp_idx);
+
+    // Compute warp location within threadblock tile by mapping the warp_id to
+    // three coordinates:
+    //   _m: the warp's position within the threadblock along the M dimension
+    //   _n: the warp's position within the threadblock along the N dimension
+    //   _k: the warp's position within the threadblock along the K dimension
+
+    int warp_idx_mn = warp_idx % (Base::WarpCount::kM * Base::WarpCount::kN);
+    int warp_idx_k = warp_idx / (Base::WarpCount::kM * Base::WarpCount::kN);
+
+    int warp_idx_m = warp_idx_mn % Base::WarpCount::kM;
+    int warp_idx_n = warp_idx_mn / Base::WarpCount::kM;
+    
+    DUMP printf("  warp_idx_m=%d\n", warp_idx_m);
+    DUMP printf("  warp_idx_n=%d\n", warp_idx_n);
+    DUMP printf("  warp_idx_k=%d\n", warp_idx_k);
+
+    DUMP printf("  Base::kWarpGemmIterations=%d\n", Base::kWarpGemmIterations);
+    DUMP printf("  warp_tile_iterator_A_=%d, %d\n", warp_idx_m, Base::kWarpGemmIterations * warp_idx_k);
+    DUMP printf("  warp_tile_iterator_B_=%d, %d\n", Base::kWarpGemmIterations * warp_idx_k, warp_idx_n);
+
+
+    // 
+    // warp_tile_iterator_A_(shared_storage.operand_A_ref(), lane_idx)
+    // warp_tile_iterator_B_(shared_storage.operand_B_ref(), lane_idx)
+
+    // Add per-warp offsets in units of warp-level tiles
+    this->warp_tile_iterator_A_.add_tile_offset({warp_idx_m, Base::kWarpGemmIterations * warp_idx_k});
+    this->warp_tile_iterator_B_.add_tile_offset({Base::kWarpGemmIterations * warp_idx_k, warp_idx_n});
+    DUMP printf("MmaPipelined Leave\n");
+  }
+
+  /// Perform a threadblock-scoped matrix multiply-accumulate
+  CUTLASS_DEVICE
+  void operator()(
+    int gemm_k_iterations,                            ///< number of iterations of the mainloop
+    FragmentC &accum,                                 ///< destination accumulator tile
+    IteratorA iterator_A,                             ///< iterator over A operand in global memory
+    IteratorB iterator_B,                             ///< iterator over B operand in global memory
+    FragmentC const &src_accum,                       ///< source accumulator tile
+    TransformA transform_A = TransformA(),            ///< transformation applied to A fragment
+    TransformB transform_B = TransformB()) {          ///< transformation applied to B fragment
+
+    //
+    // Prologue
+    //
+
+    // Perform accumulation in the 'd' output operand
+    accum = src_accum;
+
+    FragmentA tb_frag_A;
+    FragmentB tb_frag_B;
+
+    tb_frag_A.clear();
+    tb_frag_B.clear();
+
+    // The last kblock is loaded in the prolog
+    iterator_A.load(tb_frag_A);
+    iterator_B.load(tb_frag_B);
+
+    ++iterator_A;
+    ++iterator_B;
+
+    this->smem_iterator_A_.store(transform_A(tb_frag_A));
+    this->smem_iterator_B_.store(transform_B(tb_frag_B));
+
+    ++this->smem_iterator_A_;
+    ++this->smem_iterator_B_;
+
+    __syncthreads();
+
+    // Pair of fragments used to overlap shared memory loads and math instructions
+    WarpFragmentA warp_frag_A[2];
+    WarpFragmentB warp_frag_B[2];
+
+    this->warp_tile_iterator_A_.set_kgroup_index(0);
+    this->warp_tile_iterator_B_.set_kgroup_index(0);
+
+    this->warp_tile_iterator_A_.load(warp_frag_A[0]);
+    this->warp_tile_iterator_B_.load(warp_frag_B[0]);
+
+    ++this->warp_tile_iterator_A_;
+    ++this->warp_tile_iterator_B_;
+
+    Operator warp_mma;
+
+    int smem_write_stage_idx = 1;
+
+    // Avoid reading out of bounds
+    iterator_A.clear_mask(gemm_k_iterations <= 1);
+    iterator_B.clear_mask(gemm_k_iterations <= 1);
+
+    // Issue loads during the first warp-level matrix multiply-add *AFTER* issuing 
+    // shared memory loads (which have the tighest latency requirement).
+
+    //
+    // Mainloop
+    //
+
+    // Note: The main loop does not support Base::kWarpGemmIterations == 2.
+    CUTLASS_GEMM_LOOP
+    for (; gemm_k_iterations > 0; --gemm_k_iterations) {
+      //
+      // Loop over GEMM K dimension
+      //
+
+      CUTLASS_PRAGMA_UNROLL
+      for (int warp_mma_k = 0; warp_mma_k < Base::kWarpGemmIterations; ++warp_mma_k) {
+
+        // Load warp-level tiles from shared memory, wrapping to k offset if this is the last group
+        // as the case may be.
+
+        if (warp_mma_k == Base::kWarpGemmIterations - 1) {
+
+          // Write fragments to shared memory
+          this->smem_iterator_A_.store(transform_A(tb_frag_A));
+          this->smem_iterator_B_.store(transform_B(tb_frag_B));
+
+          __syncthreads();
+          
+          ++this->smem_iterator_A_;
+          ++this->smem_iterator_B_;
+
+          // Add negative offsets to return iterators to the 'start' of the circular buffer in shared memory
+          if (smem_write_stage_idx == 1) {
+            this->smem_iterator_A_.add_tile_offset({0, -Base::kStages});
+            this->smem_iterator_B_.add_tile_offset({-Base::kStages, 0});
+          }
+          else {
+            this->warp_tile_iterator_A_.add_tile_offset(
+                {0, -Base::kStages * Policy::kPartitionsK * Base::kWarpGemmIterations});
+            this->warp_tile_iterator_B_.add_tile_offset(
+                {-Base::kStages * Policy::kPartitionsK * Base::kWarpGemmIterations,
+                 0});
+          }
+
+          smem_write_stage_idx ^= 1;
+        }
+
+        this->warp_tile_iterator_A_.set_kgroup_index((warp_mma_k + 1) % Base::kWarpGemmIterations);
+        this->warp_tile_iterator_B_.set_kgroup_index((warp_mma_k + 1) % Base::kWarpGemmIterations);
+        
+        this->warp_tile_iterator_A_.load(warp_frag_A[(warp_mma_k + 1) % 2]);
+        this->warp_tile_iterator_B_.load(warp_frag_B[(warp_mma_k + 1) % 2]);
+
+        ++this->warp_tile_iterator_A_;
+        ++this->warp_tile_iterator_B_;
+
+        if (warp_mma_k == 0) {
+
+          iterator_A.load(tb_frag_A);
+          iterator_B.load(tb_frag_B);
+
+          ++iterator_A;
+          ++iterator_B;
+
+          // Avoid reading out of bounds if this was the last loop iteration
+          iterator_A.clear_mask(gemm_k_iterations <= 2);
+          iterator_B.clear_mask(gemm_k_iterations <= 2);
+        }
+
+        warp_mma(accum, warp_frag_A[warp_mma_k % 2],
+                 warp_frag_B[warp_mma_k % 2], accum);
+      }
+    }
+  }
+```
