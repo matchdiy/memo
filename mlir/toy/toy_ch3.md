@@ -145,7 +145,7 @@ toy.func @transpose_transpose(%arg0: tensor<*xf64>) -> tensor<*xf64> {
         [(TypesAreIdentical $res, $arg)]>;
   ```
 
-一些优化可能需要对指令参数进行额外的转换。这是使用 ___NativeCodeCall___ 实现的，它允许通过调用 C++ 辅助函数或使用内联 C++ 进行更复杂的转换。这种优化的一个例子是 FoldConstantReshape，我们直接通过生成一个指定 _Type_ 的 _ConstantOp_ 操作来优化常量值的 Reshape， 使其在运行期不发生。
+一些优化可能需要对指令参数进行额外的转换。这是使用 ___NativeCodeCall___ 实现的，它允许通过调用 C++ 辅助函数或使用内联 C++ 进行更复杂的转换。这种优化的一个例子是 FoldConstantReshape，我们直接通过 inline 生成一个指定 _Type_ 的 _ConstantOp_ 操作来优化常量值的 Reshape， 使其在运行期不发生。
 
   ```TB
   def ReshapeConstant : NativeCodeCall<"$0.reshape(($1.getType()).cast<ShapedType>())">;
