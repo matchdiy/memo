@@ -1,5 +1,7 @@
 # Chapter 3: High-level Language-Specific Analysis and Transformation
 
+## 前言
+
 创建一种精确代表输入语言语义的方言，可以在 MLIR 中进行分析、转换和优化，这些分析、转换和优化需要高级语言信息，并且通常在语言 AST 上执行。例如，clang 有一个相当繁重的机制来在 C++ 中执行模板实例化。
 
 我们将编译器转换分为两类：_局部_ 和 _全局_。 在本章中，我们将重点介绍如何利用 Toy 方言及其高级语义来执行在 LLVM 中很难进行的局部模式匹配转换（local pattern-match transformations）。为此，我们使用 MLIR 的 [Generic DAG Rewriter](https://mlir.llvm.org/docs/PatternRewriter/)。
@@ -7,7 +9,7 @@
 有两种方法可用于实现模式匹配转换：
 
 * ___命令式：___ C++模式匹配和重写
-* ___声明式：___ 基于规则的模式匹配，和使用table-driven重写的 Declarative Rewrite Rules:[DRR](https://mlir.llvm.org/docs/DeclarativeRewrites/)。 请注意，使用 DRR 要求使用 ODS 定义 operation，如第 2 章所述。
+* ___声明式：___ 基于规则的模式匹配，和使用table-driven重写的 __Declarative Rewrite Rules: [DRR](https://mlir.llvm.org/docs/DeclarativeRewrites/)__。 请注意，使用 _DRR_ 要求使用 _ODS_ 定义 operation，如第 2 章所述。
 
 ## 1. Optimize Transpose using C++ style pattern-match and rewrite
 
