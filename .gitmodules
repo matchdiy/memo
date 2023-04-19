@@ -1,0 +1,3 @@
+[submodule "transformer/annotated-transformer"]
+	path = transformer/annotated-transformer
+	url = https://github.com/matchdiy/annotated-transformer.git
