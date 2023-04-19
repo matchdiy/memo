@@ -4,7 +4,7 @@
 
 通过方言，MLIR 允许表示许多不同的抽象层次，我们之前定义的 Toy 方言就是这样一个例子。 尽管这些不同的方言可能代表不同的抽象，但通常有一组我们想要执行的通用转换和分析。 如果为每一种方言都实现各自的转换会导致大量代码重复，因为内部算法通常非常相似。 我们希望提供转换功能，以不透明的方式挂钩到像 Toy 这样的方言中，以获取他们需要的信息。
 
-MLIR 为某些核心转换提供了一组始终可用的挂钩，如前一章所示，我们通过操作挂钩 (getCanonicalizationPatterns) 注册了一些规范化。 然而，这些类型的钩子并不能很好地扩展。 因此，以 [Interface](https://mlir.llvm.org/docs/Interfaces/) 的形式设计了一个更通用的解决方案，使 MLIR 基础设施像表示（representation）一样可扩展。 接口为方言和操作提供了一种通用机制，以便为转换或分析提供信息。
+MLIR 为某些核心转换提供了一组始终可用的挂钩，如前一章所示，我们通过操作挂钩 (_getCanonicalizationPatterns_) 注册了一些规范化。 然而，这些类型的钩子并不能很好地扩展。 因此，以 [Interface](https://mlir.llvm.org/docs/Interfaces/) 的形式设计了一个更通用的解决方案，使 MLIR 基础设施像表示（representation）一样可扩展。 接口为方言和操作提供了一种通用机制，以便为转换或分析提供信息。
 
 ## 2. Shape Inference: Preparing for Code Generation
 
