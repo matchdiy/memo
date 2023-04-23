@@ -13,8 +13,10 @@
 <li><a href="#one-hot-encoding">One-Hot Encoding</a></li>
 <li><a href="#world-embedding">World Embedding</a></li>
 <li><a href="#positional-encoding">Positional Encoding</a></li>
+<li><a href="#output-embedding">Output Embedding</a></li>
+
 </ul></li>
-<li><a href="#background">Background</a></li>
+<li><a href="#attention">Attention</a></li>
 <li><a href="#part-1-model-architecture">Part 1: Model Architecture</a></li>
 <li><a href="#model-architecture">Model Architecture</a><ul>
 <li><a href="#encoder-and-decoder-stacks">Encoder and Decoder Stacks</a></li>
@@ -32,11 +34,12 @@ Networks</a></li>
 
 |Term                      |Abbr              |Value|Shape|
 |----                      |----              |-----|-----------|
-|batch size                |$batch$           |     |           |
 |layer                     |$N$               | 6   |           |
+|batch size                |$batch$           |     |           |
 |max sequence length       |$msl$             |128  |dataset base|
+|$batch * msl$             |$M$               |     |           |
 |vocab size                |$vocabs$          |50257|dataset base|
-|head number               |$h$               | 8   |    |
+|head number               |$head$               | 8   |    |
 |dimension of key and query|$d_k$             | 64  |    |
 |dimension of value        |$d_v$             | 64  |$d_k=d_v$|
 |dimension of model        |$d_{\text{model}}$| 512 |$d_{\text{model}}=h \cdot d_v$|
@@ -47,9 +50,9 @@ Networks</a></li>
 |value                     |V                 | |[$batch$, $msl$, $d_{\text{model}}$]|
 |token embedding table     |                  | |[$vocabs$, $d_{\text{model}}$]|
 |position embedding table  |                  | |[$msl$, $d_{\text{model}}$]|
-|weight of query           |WQ                | |[$h$, $d_{\text{model}}$, $d_k$]|
-|weight of key             |WK                | |[$h$, $d_{\text{model}}$, $d_k$]|
-|weight of value           |WV                | |[$h$, $d_{\text{model}}$, $d_v$]|
+|weight of query           |WQ                | |[$head$, $d_{\text{model}}$, $d_k$]|
+|weight of key             |WK                | |[$head$, $d_{\text{model}}$, $d_k$]|
+|weight of value           |WV                | |[$head$, $d_{\text{model}}$, $d_v$]|
 |weight of output          |WO                | |[$h \cdot d_v$, $d_{\text{model}}$]|
 |weight 1 of layernorm     |l1                | |[$d_{\text{model}}$]|
 |weight 1 of FFN           |W1                | |[$d_{\text{model}}$, $d_{\text{ff}}$]|
@@ -60,7 +63,7 @@ Networks</a></li>
 
 * $msl$ 和 $vocabs$ 的值取决于数据集
 * $d_{\text{ff}}$: 一般习惯 $d_{\text{ff}}=4 \cdot d_{\text{model}}$，但论文没有说明这一点
-* WO: 一般习惯 $d_{\text{model}}=h \cdot d_v$, 但这不是必须的。multi-head 输出时需要concat多个 $h$ 个 $d_v$
+* WO: 一般习惯 $d_{\text{model}}=h \cdot d_v$, 但这不是必须的。multi-head 输出时需要concat多个 $head$ 个 $d_v$
 
 # Embedding
 
@@ -158,12 +161,36 @@ $$PE_{(pos,2i)} = \sin(pos / 10000^{2i/d_{\text{model}}})$$
 
 $$PE_{(pos,2i+1)} = \cos(pos / 10000^{2i/d_{\text{model}}})$$
 
-* 其中 $pos$ 是词在句子中的位置，句子的长度会被padding 到 $max\_sequnce\_size$, $pos \in [0, max\_sequnce\_size)$
-* 其中 $2i$ 和 $2i+1$ 表示的是 $[0, d_{\text{model}})$中的偶数和奇数。
+* 其中 $pos$ 是词在句子中的位置，句子的最大长度 $max\_sequnce\_size$，那么 $PE[ max\_sequnce\_size, d_{\text{model}} ]$
+* 其中 $2i$ 和 $2i+1$ 表示的是 $[0, d_{\text{model}})$中的偶数和奇数，注意在cos计算中仍旧使用的是 $2i$，这样来让 $d_{\text{model}}$ 的不同维度上的PE有不同的值。
   * ${(pos,2i)}$ 表示一条语句中的第 $pos$ 个词的embeding vector中的第 $2i$ 个元素
   * ${(pos,2i+1)}$ 表示一条语句中的第 $pos$ 个词的embeding vector中的第 $2i+1$ 个元素
 * $PE$公式保证了相同的词在不同的位置的编码一定不同 ？？？
-* $PE$会和 world embedding 直接相加作为 embedding table
+* $PE$会和 world embedding 相加并且对其结果进行 dropout 后输出，对于Encoder和Decoder都是一样。这里为什么用 dropout 进行一次正则？？？
+
+```Python
+class PositionalEncoding(nn.Module):
+    "Implement the PE function."
+
+    def __init__(self, d_model, dropout, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        # Compute the positional encodings once in log space.
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2) * -(math.log(10000.0) / d_model)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.register_buffer("pe", pe)
+
+    def forward(self, x):
+        x = x + self.pe[:, : x.size(1)].requires_grad_(False)
+        return self.dropout(x)
+```
 
 ## Output Embedding
 
@@ -174,4 +201,50 @@ $$PE_{(pos,2i+1)} = \cos(pos / 10000^{2i/d_{\text{model}}})$$
   * `Encoder Input Embeding`："How are you`<EOS>`"
   * `Decoder Output Embedding`: "`<BOS>` I am fine `<EOS>`"。需要的只是 "I am fine `<EOS>`"，所以要标记 shifted right
 
-# Background
+# Attention
+
+## Scaled Dot-Product Attention
+
+Attention的三个输入 Q(qurey), K(Key), V(value) 拥有相同的Shape：
+
+* $ Q[batch, msl, d_k] = Input[batch, msl, d_{\text{model}}] * WQ[d_{\text{model}}, d_k]$
+* $ K[batch, msl, d_k] = Input[batch, msl, d_{\text{model}}] * WK[d_{\text{model}}, d_k]$
+* $ V[batch, msl, d_v] = Input[batch, msl, d_{\text{model}}] * WV[d_{\text{model}}, d_v]$
+
+$$
+   \mathrm{Attention}(Q, K, V) = \mathrm{softmax}(\frac{QK^T}{\sqrt{d_k}})V
+$$
+
+```Python
+def attention(query, key, value, mask=None, dropout=None):
+    "Compute 'Scaled Dot Product Attention'"
+    d_k = query.size(-1)
+    scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
+    if mask is not None:
+        scores = scores.masked_fill(mask == 0, -1e9)
+    p_attn = scores.softmax(dim=-1)
+    if dropout is not None:
+        p_attn = dropout(p_attn)
+    return torch.matmul(p_attn, value), p_attn
+```
+
+## Multi-head attention
+
+多头注意力允许模型共同关注来自不同位置的不同表示子空间的信息
+
+$$
+\mathrm{MultiHead}(Q, K, V) =
+    \mathrm{Concat}(\mathrm{head_1}, ..., \mathrm{head_h})W^O \\
+    \text{where}~\mathrm{head_i} = \mathrm{Attention}(QW^Q_i, KW^K_i, VW^V_i)
+$$
+
+* $ Q[batch, head, msl, d_k] = Input[batch, msl, d_{\text{model}}] * WQ[head, d_{\text{model}}, d_k]$
+* $ K[batch, head, msl, d_k] = Input[batch, msl, d_{\text{model}}] * WK[head, d_{\text{model}}, d_k]$
+* $ V[batch, head, msl, d_v] = Input[batch, msl, d_{\text{model}}] * WV[head, d_{\text{model}}, d_v]$
+
+----
+
+* $tensor_1[batch_{\text{vocab}}, batch_{\text{vocab}}] = Dot(Q[batch_{\text{vocab}}, d_k], K[batch_{\text{vocab}}, d_k]^T)$
+* $tensor_2[batch_{\text{vocab}}, batch_{\text{vocab}}] = Mul(tensor_1[batch_{\text{vocab}}, batch_{\text{vocab}}], 1/\sqrt{d_{\text{model}}})$
+* $tensor_3[batch_{\text{vocab}}, batch_{\text{vocab}}] = softmax(tensor_2[batch_{\text{vocab}}, batch_{\text{vocab}}])$
+* $tensor_4[batch_{\text{vocab}}, d_v] = Dot(tensor_4[batch_{\text{vocab}}, batch_{\text{vocab}}], V[batch_{\text{vocab}}, d_v])$
