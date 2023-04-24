@@ -39,7 +39,7 @@ Networks</a></li>
 |max sequence length       |$msl$             |128  |dataset base|
 |$batch * msl$             |$M$               |     |           |
 |vocab size                |$vocabs$          |50257|dataset base|
-|head number               |$head$               | 8   |    |
+|head number               |$head$            | 8   |    |
 |dimension of key and query|$d_k$             | 64  |    |
 |dimension of value        |$d_v$             | 64  |$d_k=d_v$|
 |dimension of model        |$d_{\text{model}}$| 512 |$d_{\text{model}}=h \cdot d_v$|
@@ -50,10 +50,10 @@ Networks</a></li>
 |value                     |V                 | |[$batch$, $msl$, $d_{\text{model}}$]|
 |token embedding table     |                  | |[$vocabs$, $d_{\text{model}}$]|
 |position embedding table  |                  | |[$msl$, $d_{\text{model}}$]|
-|weight of query           |WQ                | |[$head$, $d_{\text{model}}$, $d_k$]|
-|weight of key             |WK                | |[$head$, $d_{\text{model}}$, $d_k$]|
-|weight of value           |WV                | |[$head$, $d_{\text{model}}$, $d_v$]|
-|weight of output          |WO                | |[$h \cdot d_v$, $d_{\text{model}}$]|
+|weight of query           |QW                | |[$d_{\text{model}}$, $d_{\text{model}}$]|
+|weight of key             |KW                | |[$d_{\text{model}}$, $d_{\text{model}}$]|
+|weight of value           |VW                | |[$d_{\text{model}}$, $d_{\text{model}}$]|
+|weight of output          |WO                | |[$d_{\text{model}}$, $d_{\text{model}}$]|
 |weight 1 of layernorm     |l1                | |[$d_{\text{model}}$]|
 |weight 1 of FFN           |W1                | |[$d_{\text{model}}$, $d_{\text{ff}}$]|
 |bias 1 of FFN             |b1                | |[$d_{\text{model}}$]|
@@ -63,7 +63,7 @@ Networks</a></li>
 
 * $msl$ 和 $vocabs$ 的值取决于数据集
 * $d_{\text{ff}}$: 一般习惯 $d_{\text{ff}}=4 \cdot d_{\text{model}}$，但论文没有说明这一点
-* WO: 一般习惯 $d_{\text{model}}=h \cdot d_v$, 但这不是必须的。multi-head 输出时需要concat多个 $head$ 个 $d_v$
+* QW，KW，VW: 无论 $head$ 是多少这几个权重的shape都是 [$d_{\text{model}}$, $d_{\text{model}}$]，多头是指多个attention以sub的方式共同使用W，于是才有：$d_v=d_{\text{model}}/head$
 
 # Embedding
 
@@ -205,11 +205,12 @@ class PositionalEncoding(nn.Module):
 
 ## Scaled Dot-Product Attention
 
-Attention的三个输入 Q(qurey), K(Key), V(value) 拥有相同的Shape：
+Attention的三个输入 Q(qurey), K(Key), V(value) 拥有相同的Shap，他们是这样计算的：
 
-* $ Q[batch, msl, d_k] = Input[batch, msl, d_{\text{model}}] * WQ[d_{\text{model}}, d_k]$
-* $ K[batch, msl, d_k] = Input[batch, msl, d_{\text{model}}] * WK[d_{\text{model}}, d_k]$
-* $ V[batch, msl, d_v] = Input[batch, msl, d_{\text{model}}] * WV[d_{\text{model}}, d_v]$
+* $ Q[batch, msl, d_k] = Input[batch, msl, d_{\text{model}}] * QW[d_{\text{model}}, d_k]$
+* $ K[batch, msl, d_k] = Input[batch, msl, d_{\text{model}}] * KW[d_{\text{model}}, d_k]$
+* $ V[batch, msl, d_v] = Input[batch, msl, d_{\text{model}}] * VW[d_{\text{model}}, d_v]$
+* __注意__: 这里的描述不是多头，也就是$head$=1，所以 $d_k$==$d_{\text{model}}$
 
 $$
    \mathrm{Attention}(Q, K, V) = \mathrm{softmax}(\frac{QK^T}{\sqrt{d_k}})V
@@ -238,13 +239,21 @@ $$
     \text{where}~\mathrm{head_i} = \mathrm{Attention}(QW^Q_i, KW^K_i, VW^V_i)
 $$
 
-* $ Q[batch, head, msl, d_k] = Input[batch, msl, d_{\text{model}}] * WQ[head, d_{\text{model}}, d_k]$
-* $ K[batch, head, msl, d_k] = Input[batch, msl, d_{\text{model}}] * WK[head, d_{\text{model}}, d_k]$
-* $ V[batch, head, msl, d_v] = Input[batch, msl, d_{\text{model}}] * WV[head, d_{\text{model}}, d_v]$
+计算Q，K，V三个变量，他们是Attention的输入：
+
+* $ Q[batch, msl, d_{\text{model}}] = Input[batch, msl, d_{\text{model}}] * QW[d_{\text{model}}, d_{\text{model}}]$
+* $ K[batch, msl, d_{\text{model}}] = Input[batch, msl, d_{\text{model}}] * WK[d_{\text{model}}, d_{\text{model}}]$
+* $ V[batch, msl, d_{\text{model}}] = Input[batch, msl, d_{\text{model}}] * WV[d_{\text{model}}, d_{\text{model}}]$
+
+拆出 $head$:
+
+* $Q[batch, msl, head, d_k] = Reshape(Q[batch, msl, d_{\text{model}}])$
+* $K[batch, msl, head, d_k] = Reshape(K[batch, msl, d_{\text{model}}])$
+* $V[batch, msl, head, d_v] = Reshape(V[batch, msl, d_{\text{model}}])$
 
 ----
 
-* $tensor_1[batch_{\text{vocab}}, batch_{\text{vocab}}] = Dot(Q[batch_{\text{vocab}}, d_k], K[batch_{\text{vocab}}, d_k]^T)$
+* $QK[batch_{\text{vocab}}, batch_{\text{vocab}}] = Dot(Q[batch_{\text{vocab}}, d_k], K[batch_{\text{vocab}}, d_k]^T)$
 * $tensor_2[batch_{\text{vocab}}, batch_{\text{vocab}}] = Mul(tensor_1[batch_{\text{vocab}}, batch_{\text{vocab}}], 1/\sqrt{d_{\text{model}}})$
 * $tensor_3[batch_{\text{vocab}}, batch_{\text{vocab}}] = softmax(tensor_2[batch_{\text{vocab}}, batch_{\text{vocab}}])$
 * $tensor_4[batch_{\text{vocab}}, d_v] = Dot(tensor_4[batch_{\text{vocab}}, batch_{\text{vocab}}], V[batch_{\text{vocab}}, d_v])$
