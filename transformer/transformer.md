@@ -36,8 +36,10 @@ Networks</a></li>
 |----                      |----              |-----|-----------|
 |layer                     |$N$               | 6   |           |
 |batch size                |$batch$           |     |           |
-|max sequence length       |$msl$             |128  |dataset base|
-|$batch * msl$             |$M$               |     |           |
+|max sequence length       |$msl$             |128  |dataset base |
+|src sequence length       |$src\_sl$         |any  |sequence base|
+|target sequence length    |$tgt\_msl$        |any  |sequence base|
+|$batch * msl$             |$M$               |     |             |
 |vocab size                |$vocabs$          |50257|dataset base|
 |head number               |$head$            | 8   |    |
 |dimension of key and query|$d_k$             | 64  |    |
@@ -45,9 +47,9 @@ Networks</a></li>
 |dimension of model        |$d_{\text{model}}$| 512 |$d_{\text{model}}=h \cdot d_v$|
 |dimension of feed forward |$d_{\text{ff}}$   | 2048|    |
 |feature                   |                  | |[$batch$, $msl$]|
-|query                     |Q                 | |[$batch$, $msl$, $d_{\text{model}}$]|
-|key                       |K                 | |[$batch$, $msl$, $d_{\text{model}}$]|
-|value                     |V                 | |[$batch$, $msl$, $d_{\text{model}}$]|
+|query                     |Q                 | |[$batch$, $src\_sl$, $d_{\text{model}}$] or [$batch$, $msl$, $d_{\text{model}}$]|
+|key                       |K                 | |[$batch$, $tgt\_sl$, $d_{\text{model}}$] or [$batch$, $msl$, $d_{\text{model}}$]|
+|value                     |V                 | |[$batch$, $tgt\_sl$, $d_{\text{model}}$] or [$batch$, $msl$, $d_{\text{model}}$]|
 |token embedding table     |                  | |[$vocabs$, $d_{\text{model}}$]|
 |position embedding table  |                  | |[$msl$, $d_{\text{model}}$]|
 |weight of query           |QW                | |[$d_{\text{model}}$, $d_{\text{model}}$]|
@@ -231,7 +233,7 @@ def attention(query, key, value, mask=None, dropout=None):
 
 ## Multi-head attention
 
-多头注意力允许模型共同关注来自不同位置的不同表示子空间的信息
+多头注意力允许模型共同关注来自不同位置的不同表示子空间的信息.
 
 $$
 \mathrm{MultiHead}(Q, K, V) =
