@@ -241,21 +241,35 @@ $$
     \text{where}~\mathrm{head_i} = \mathrm{Attention}(QW^Q_i, KW^K_i, VW^V_i)
 $$
 
-计算Q，K，V三个变量，他们是Attention的输入：
+* 计算Q，K，V三个变量，他们是Attention的输入:
 
-* $ Q[batch, msl, d_{\text{model}}] = Input[batch, msl, d_{\text{model}}] * QW[d_{\text{model}}, d_{\text{model}}]$
-* $ K[batch, msl, d_{\text{model}}] = Input[batch, msl, d_{\text{model}}] * WK[d_{\text{model}}, d_{\text{model}}]$
-* $ V[batch, msl, d_{\text{model}}] = Input[batch, msl, d_{\text{model}}] * WV[d_{\text{model}}, d_{\text{model}}]$
+  $ Q[batch, msl, d_{\text{model}}] = Input[batch, msl, d_{\text{model}}] * QW[d_{\text{model}}, d_{\text{model}}]$
+  $ K[batch, msl, d_{\text{model}}] = Input[batch, msl, d_{\text{model}}] * WK[d_{\text{model}}, d_{\text{model}}]$
+  $ V[batch, msl, d_{\text{model}}] = Input[batch, msl, d_{\text{model}}] * WV[d_{\text{model}}, d_{\text{model}}]$
 
-拆出 $head$:
+* 拆出 $head$:
 
-* $Q[batch, msl, head, d_k] = Reshape(Q[batch, msl, d_{\text{model}}])$
-* $K[batch, msl, head, d_k] = Reshape(K[batch, msl, d_{\text{model}}])$
-* $V[batch, msl, head, d_v] = Reshape(V[batch, msl, d_{\text{model}}])$
+  $Q[batch, msl, head, d_k] = Reshape(Q[batch, msl, d_{\text{model}}])$
+  $K[batch, msl, head, d_k] = Reshape(K[batch, msl, d_{\text{model}}])$
+  $V[batch, msl, head, d_v] = Reshape(V[batch, msl, d_{\text{model}}])$
 
-----
+* 计算 $QK^T$:
+  $$ 
+    QK^T[batch, msl, head, msl] = Dot(Q[batch, msl, head, d_k], K[batch, msl, head, d_k], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{3\}, out\_batch\_dims=\{0,2\})
+  $$
 
-* $QK[batch_{\text{vocab}}, batch_{\text{vocab}}] = Dot(Q[batch_{\text{vocab}}, d_k], K[batch_{\text{vocab}}, d_k]^T)$
-* $tensor_2[batch_{\text{vocab}}, batch_{\text{vocab}}] = Mul(tensor_1[batch_{\text{vocab}}, batch_{\text{vocab}}], 1/\sqrt{d_{\text{model}}})$
-* $tensor_3[batch_{\text{vocab}}, batch_{\text{vocab}}] = softmax(tensor_2[batch_{\text{vocab}}, batch_{\text{vocab}}])$
-* $tensor_4[batch_{\text{vocab}}, d_v] = Dot(tensor_4[batch_{\text{vocab}}, batch_{\text{vocab}}], V[batch_{\text{vocab}}, d_v])$
+* 计算 Scale
+  $Scale[batch, msl, head, msl] = Mul(QK^T[batch, msl, head, msl], 1/\sqrt{d_{\text{model}}})$
+
+* 计算 Softmax
+  $Sftm[batch, msl, head, msl] = Softmax(Scale[batch, msl, head, msl], dim=-1)$
+
+* 计算Out
+  $$ 
+  Out[batch, msl, head, d_v] = Dot(Sftm[batch, msl, head, msl], V[batch, msl, head, d_v], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{1\}, out\_batch\_dims=\{0,2\})
+  $$
+
+* 重新合并 $head$
+  $Out[batch, msl, d_{\text{model}}] = Reshape(Out[batch, msl, head, d_v])$
+
+至此没有发生过 transpose 操作， 那么还要结合看一下后续的计算需要什么样的 layout

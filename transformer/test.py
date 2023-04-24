@@ -131,7 +131,7 @@ class MultiHeadedAttention(torch.nn.Module):
 
 
 if __name__ == '__main__':
-  mini_batch = 1
+  mini_batch = 4
   d_model = 512
   d_k = 64
   d_v = 64
@@ -153,4 +153,4 @@ if __name__ == '__main__':
   i_v = torch.zeros(mini_batch, msl, d_model)
   mult_head_att = MultiHeadedAttention(head_nums, d_model)
   res = mult_head_att(i_q, i_k ,i_v)
-  #print(res.shape)
+  print('mult_head_att_out.shape={}'.format(res.shape))
