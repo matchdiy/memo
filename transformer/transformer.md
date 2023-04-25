@@ -9,25 +9,22 @@
 <h3> Table of Contents </h3>
 <ul>
 <li><a href="#terminology">Terminology</a></li>
-<li><a href="#embedding">Embedding</a><ul>
+<li><a href="#embedding">Embedding</a>
+<ul>
 <li><a href="#one-hot-encoding">One-Hot Encoding</a></li>
 <li><a href="#world-embedding">World Embedding</a></li>
 <li><a href="#positional-encoding">Positional Encoding</a></li>
 <li><a href="#output-embedding">Output Embedding</a></li>
-
 </ul></li>
-<li><a href="#attention">Attention</a></li>
-<li><a href="#part-1-model-architecture">Part 1: Model Architecture</a></li>
-<li><a href="#model-architecture">Model Architecture</a><ul>
-<li><a href="#encoder-and-decoder-stacks">Encoder and Decoder Stacks</a></li>
-<li><a href="#position-wise-feed-forward-networks">Position-wise Feed-Forward
-Networks</a></li>
+<li><a href="#attention">Attention</a>
+<ul>
+<li><a href="#Scaled-Dot-Product-Attention">Scaled Dot-Product Attention</a></li>
+<li><a href="#Multi-head-Attention">Multi-head Attention</a></li>
+<li><a href="#Multi-head Attention-Gradient">Multi-head Attention Gradient</a></li>
+</ul></li>
 <li><a href="#embeddings-and-softmax">Embeddings and Softmax</a></li>
 <li><a href="#positional-encoding">Positional Encoding</a></li>
 <li><a href="#full-model">Full Model</a></li>
-<li><a href="#inference">Inference:</a></li>
-</ul></li>
-<li><a href="#part-2-model-training">Part 2: Model Training</a></li>
 </ul>
 
 # Terminology
@@ -231,7 +228,7 @@ def attention(query, key, value, mask=None, dropout=None):
     return torch.matmul(p_attn, value), p_attn
 ```
 
-## Multi-head attention
+## Multi-head Attention
 
 多头注意力允许模型共同关注来自不同位置的不同表示子空间的信息.
 
@@ -241,35 +238,117 @@ $$
     \text{where}~\mathrm{head_i} = \mathrm{Attention}(QW^Q_i, KW^K_i, VW^V_i)
 $$
 
-* 计算Q，K，V三个变量，他们是Attention的输入:
+```Python
 
-  $ Q[batch, msl, d_{\text{model}}] = Input[batch, msl, d_{\text{model}}] * QW[d_{\text{model}}, d_{\text{model}}]$
-  $ K[batch, msl, d_{\text{model}}] = Input[batch, msl, d_{\text{model}}] * WK[d_{\text{model}}, d_{\text{model}}]$
-  $ V[batch, msl, d_{\text{model}}] = Input[batch, msl, d_{\text{model}}] * WV[d_{\text{model}}, d_{\text{model}}]$
+class MultiHeadedAttention(torch.nn.Module):
+  def __init__(self, h, d_model, dropout=0.1):
+    "Take in model size and number of heads."
+    super(MultiHeadedAttention, self).__init__()
+    assert d_model % h == 0
+    # We assume d_v always equals d_k
+    self.d_k = d_model // h
+    self.h = h
+    self.linears = clones(torch.nn.Linear(d_model, d_model), 4)
+    self.attn = None
+    self.dropout = torch.nn.Dropout(p=dropout)
 
-* 拆出 $head$:
+  def forward(self, query, key, value, mask=None):
+    "Implements Figure 2"
+    if mask is not None:
+        # Same mask applied to all h heads.
+        mask = mask.unsqueeze(1)
+    nbatches = query.size(0)
+
+    for lin, x in zip(self.linears, (query, key, value)):
+      q = lin(x)
+      print('{0} = dot({1}, {2})'.format(q.shape, x.shape, lin))
+      q1 = q.view(nbatches, -1, self.h, self.d_k)
+      q2 = q1.transpose(1, 2)
+      print('view {}'.format(q1.shape))
+      print('tran {}'.format(q2.shape))
+
+    # 1) Do all the linear projections in batch from d_model => h x d_k
+    query, key, value = [
+        lin(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
+        for lin, x in zip(self.linears, (query, key, value))
+    ]
+
+    # 2) Apply attention on all the projected vectors in batch.
+    x, self.attn = attention(
+        query, key, value, mask=mask, dropout=self.dropout
+    )
+
+    # 3) "Concat" using a view and apply a final linear.
+    x = (
+        x.transpose(1, 2)
+        .contiguous()
+        .view(nbatches, -1, self.h * self.d_k)
+    )
+    del query
+    del key
+    del value
+    return self.linears[-1](x)
+```
+
+我们打算实现一个 MultHeadAtten 算子，这样可以将 Softmax 计算融合到L1或者L2，从而可以减少大量的HVM开销，达到提升BatchSize或者能够跑大模型的目的。训练中MultHeadAttenGrad需要重新计算这个正向的Softmax，仍旧需要将其融合到L2或者L1，用计算换存储。
+为了消除对Tensor的Transpose操作，需要在 Dot 计算过程中能够支持 Layout{B0, M, B1, K} 的输入和输出。
+
+* 了解计算负载
+
+|$Args/Models$|SD Clip|SD Unet|Bert Base|Bert Large|GPT-2 XL|GPT-3|GPT-4 (Est.)|
+|-------------|-------|-------|---------|----------|--------|-----|------------|
+|$msl$             |77|32400|512|512|2048|3072|32000|
+|$d_{\text{model}}$|768|320|768|1024|1600|12288|25600|
+|$head$            |12|5|12|16|25|96|160|
+
+* __(1) 计算Q，K，V三个变量，他们是 MultHeadAtten 的输入，不需要融合进来__
+
+  $ Q[batch, msl, d_{\text{model}}] = Dot(Input[batch, msl, d_{\text{model}}], QW[d_{\text{model}}, d_{\text{model}}])$
+  $ K[batch, msl, d_{\text{model}}] = Dot(Input[batch, msl, d_{\text{model}}], WK[d_{\text{model}}, d_{\text{model}}])$
+  $ V[batch, msl, d_{\text{model}}] = Dot(Input[batch, msl, d_{\text{model}}], WV[d_{\text{model}}, d_{\text{model}}])$
+
+* __(2) 拆出 $head$__
 
   $Q[batch, msl, head, d_k] = Reshape(Q[batch, msl, d_{\text{model}}])$
   $K[batch, msl, head, d_k] = Reshape(K[batch, msl, d_{\text{model}}])$
   $V[batch, msl, head, d_v] = Reshape(V[batch, msl, d_{\text{model}}])$
 
-* 计算 $QK^T$:
-  $$ 
+* __(3) 计算 $QK^T$__
+  对于小模型的时候我们可以达到比较大的BatchSize，对于2.0平台我们拥有24个SIP，这个时候让每个SIP处理对用的Batch会是一个比较容易实现的方案。然而大模型的时候受限于HBM，我们很难支持比较大的BatchSize，Batch优先要划分到4C上，这样才能满足4C访问的亲和性，这个时候需要另外的方案。但不论是哪个方案，为了能计算softmax，都需要让每个SIP上计算的 $Sub_{\text{QK\^T}}[?, ?, ?, msl]$的fast inner dimension保持完整，否则需要引入`Flush Attention`进行替代计算，需要耗费额外的算力。
+  * 方案一：将batchsize并行到24个sip
+  * 方案二：将batchsize并行到4个（或者2个）cluster，再将$msl$并行到sip上（head的值一般不大，8，16...）
+  
+  $$
     QK^T[batch, msl, head, msl] = Dot(Q[batch, msl, head, d_k], K[batch, msl, head, d_k], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{3\}, out\_batch\_dims=\{0,2\})
   $$
 
-* 计算 Scale
-  $Scale[batch, msl, head, msl] = Mul(QK^T[batch, msl, head, msl], 1/\sqrt{d_{\text{model}}})$
+  L1-Tiling: $L1_{\text{QK\^T}}[?, ?, ?, msl]$
 
-* 计算 Softmax
-  $Sftm[batch, msl, head, msl] = Softmax(Scale[batch, msl, head, msl], dim=-1)$
+* __(4) 计算 Scale__
+  $Scores[batch, msl, head, msl] = Mul(QK^T[batch, msl, head, msl], 1/\sqrt{d_{\text{model}}})$
+  
+* __(5) 选项 MaskFill__
+  $Scores[batch, msl, head, msl] = MaskFill(Scores[batch, msl, head, msl] == 0, 1e-9)$
 
-* 计算Out
-  $$ 
-  Out[batch, msl, head, d_v] = Dot(Sftm[batch, msl, head, msl], V[batch, msl, head, d_v], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{1\}, out\_batch\_dims=\{0,2\})
+* __(6) 计算 Softmax__
+  $PAttn[batch, msl, head, msl] = Softmax(Scores[batch, msl, head, msl], dim=-1)$
+
+* __(7) 选项 Dropout__
+  $PAttn[batch, msl, head, msl] = Dropout(PAttn[batch, msl, head, msl], p = 0.1)$
+
+* __(8) 计算Out__
+  $$
+  Attn[batch, msl, head, d_v] = Dot(PAttn[batch, msl, head, msl], V[batch, msl, head, d_v], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{1\}, out\_batch\_dims=\{0,2\})
   $$
 
-* 重新合并 $head$
-  $Out[batch, msl, d_{\text{model}}] = Reshape(Out[batch, msl, head, d_v])$
+* __(9) 重新合并 $head$__
+  $Attn[batch, msl, d_{\text{model}}] = Reshape(Attn[batch, msl, head, d_v])$
 
-至此没有发生过 transpose 操作， 那么还要结合看一下后续的计算需要什么样的 layout
+* __(10) 最后一个Linear__
+  $Out[batch, msl, d_{\text{model}}] = Dot(Attn[batch, msl, d_{\text{model}}], WO[d_{\text{model}}, d_{\text{model}}])$
+
+这样的计算流程可以去掉所有的 transpose 操作，网络中后续的计算都是按照 $Out[batch, msl, d_{\text{model}}]$ layout进行的。
+
+## Multi-head Attention Gradient
+
+TODO
