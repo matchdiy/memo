@@ -127,8 +127,17 @@ class MultiHeadedAttention(torch.nn.Module):
     del key
     del value
     return self.linears[-1](x)
-    
 
+class Layer_norm(torch.nn.Module):
+  def __init__(self, eps=1e-5):
+    super(Layer_norm, self).__init__()
+    self.eps = eps
+    
+  def forward(self, x):
+    mean = torch.mean(x, dim=(1, 2, 3), keepdim=False)
+    var = torch.var(x, dim=(1, 2, 3), keepdim=False)
+    std = torch.sqrt(var + self.eps)
+    return (x - mean[:,None,None,None]) / std[:,None,None,None]
 
 if __name__ == '__main__':
   mini_batch = 4
@@ -148,9 +157,35 @@ if __name__ == '__main__':
   # x = torch.zeros(mini_batch, msl, d_model)
   # y = pe.forward(x)
 
-  i_q = torch.zeros(mini_batch, msl, d_model)
-  i_k = torch.zeros(mini_batch, msl, d_model)
-  i_v = torch.zeros(mini_batch, msl, d_model)
-  mult_head_att = MultiHeadedAttention(head_nums, d_model)
-  res = mult_head_att(i_q, i_k ,i_v)
-  print('mult_head_att_out.shape={}'.format(res.shape))
+  ### Mult-head Attention 
+  # i_q = torch.zeros(mini_batch, msl, d_model)
+  # i_k = torch.zeros(mini_batch, msl, d_model)
+  # i_v = torch.zeros(mini_batch, msl, d_model)
+  # mult_head_att = MultiHeadedAttention(head_nums, d_model)
+  # res = mult_head_att(i_q, i_k ,i_v)
+  # print('mult_head_att_out.shape={}'.format(res.shape))
+
+
+  ## LayerNormal: last dim
+  dummy, batch, sentence_length, embedding_dim = 2, 3, 4, 5
+  embedding = torch.randn(dummy, batch, sentence_length, embedding_dim)
+  layer_norm = torch.nn.LayerNorm(embedding_dim)
+  # Activate module
+  activate = layer_norm(embedding)
+  print(embedding.shape)
+  
+  # Image Example
+  N, C, H, W = 3, 4, 5, 6
+  input = torch.randn(N, C, H, W)
+  # Normalize over the last three dimensions (i.e. the channel and spatial dimensions)
+  # as shown in the image below
+  layer_norm = torch.nn.LayerNorm([C, H, W])
+  output = layer_norm(input)
+  print(input.shape)
+  print(output[0,0,0,:])
+  
+  ln = Layer_norm()
+  activate1 = ln(input)
+  print(activate1.shape)
+  print(activate1[0,0,0,:])
+
