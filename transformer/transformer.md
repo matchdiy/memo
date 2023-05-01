@@ -290,16 +290,7 @@ class MultiHeadedAttention(torch.nn.Module):
     return self.linears[-1](x)
 ```
 
-我们打算实现一个 MultHeadAtten 算子，这样可以将 Softmax 计算融合到L1或者L2，从而可以减少大量的HVM开销，达到提升BatchSize或者能够跑大模型的目的。训练中MultHeadAttenGrad需要重新计算这个正向的Softmax，仍旧需要将其融合到L2或者L1，用计算换存储。
-为了消除对Tensor的Transpose操作，需要在 Dot 计算过程中能够支持 Layout{B0, M, B1, K} 的输入和输出。
-
-* 了解计算负载
-
-|$Args/Models$|SD Clip|SD Unet|Bert Base|Bert Large|GPT-2 XL|GPT-3|GPT-4 (Est.)|
-|-------------|-------|-------|---------|----------|--------|-----|------------|
-|$msl$             |77|32400|512|512|2048|3072|32000|
-|$d_{\text{model}}$|768|320|768|1024|1600|12288|25600|
-|$head$            |12|5|12|16|25|96|160|
+## MHA 计算过程以及精度
 
 * __(1) 计算Q，K，V三个变量，他们是 MultHeadAtten 的输入，不需要融合进来__
 
@@ -314,41 +305,120 @@ class MultiHeadedAttention(torch.nn.Module):
   $V[batch, msl, head, d_v] = Reshape(V[batch, msl, d_{\text{model}}])$
 
 * __(3) 计算 $QK^T$__
-  对于小模型的时候我们可以达到比较大的BatchSize，对于2.0平台我们拥有24个SIP，这个时候让每个SIP处理对用的Batch会是一个比较容易实现的方案。然而大模型的时候受限于HBM，我们很难支持比较大的BatchSize，Batch优先要划分到4C上，这样才能满足4C访问的亲和性，这个时候需要另外的方案。但不论是哪个方案，为了能计算softmax，都需要让每个SIP上计算的 $Sub_{\text{QK\^T}}[?, ?, ?, msl]$的fast inner dimension保持完整，否则需要引入`Flush Attention`进行替代计算，需要耗费额外的算力。
-  * 方案一：将batchsize并行到24个sip
-  * 方案二：将batchsize并行到4个（或者2个）cluster，再将$msl$并行到sip上（head的值一般不大，8，16...）
-  
-  $$
-    QK^T[batch, msl, head, msl] = Dot(Q[batch, msl, head, d_k], K[batch, msl, head, d_k], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{3\}, out\_batch\_dims=\{0,2\})
-  $$
-
-  L1-Tiling: $L1_{\text{QK\^T}}[?, ?, ?, msl]$
+  * $$
+    QK^T[batch, msl_m, head, msl_n] = Dot(Q[batch, msl_m, head, d_k], K[batch, msl_n, head, d_k], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{3\}, out\_batch\_dims=\{0,2\})
+    $$
+  * ___FIMXE：AMP时输入和输出都是 FP16___
+  * 注意：$msl_m == msl_n$，这里只是为了标注出不同的维度意义。
 
 * __(4) 计算 Scale__
-  $Scores[batch, msl, head, msl] = Mul(QK^T[batch, msl, head, msl], 1/\sqrt{d_{\text{model}}})$
+  * $QK^T[batch, msl, head, msl] = Mul(QK^T[batch, msl, head, msl], 1/\sqrt{d_{\text{model}}})$
+  * ___FIXME：AMP时使用 FP16 输入输出___
   
 * __(5) 选项 MaskFill__
-  $Scores[batch, msl, head, msl] = MaskFill(Scores[batch, msl, head, msl] == 0, 1e-9)$
+  * $QK^T[batch, msl, head, msl] = MaskFill(QK^T[batch, msl, head, msl] == 0, -1e9)$
+  * mask value是负无穷，这样的目的是让mask==0的地方经过softmax后仍然是0.
+  * ___FIXME：AMP时使用 FP16 输入和输出___
 
 * __(6) 计算 Softmax__
-  $PAttn[batch, msl, head, msl] = Softmax(Scores[batch, msl, head, msl], dim=-1)$
+  * $QK^T[batch, msl, head, msl] = Softmax(QK^T[batch, msl, head, msl], dim=-1)$
+  * ___FIXME：AMP时，如果输入是FP16，那么计算过程中需要先转成FP32再计算，输出转成 FP16___
 
 * __(7) 选项 Dropout__
-  $PAttn[batch, msl, head, msl] = Dropout(PAttn[batch, msl, head, msl], p = 0.1)$
+  * $QK^T[batch, msl, head, msl] = Dropout(QK^T[batch, msl, head, msl], p = 0.1)$
+  * ___FIXME：如果是基于当前Tiling部分做Dropout，这里恐怕是有算法上的风险的___
 
 * __(8) 计算Out__
-  $$
-  Attn[batch, msl, head, d_v] = Dot(PAttn[batch, msl, head, msl], V[batch, msl, head, d_v], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{1\}, out\_batch\_dims=\{0,2\})
-  $$
+  * $$
+    Attn[batch, msl, head, d_v] = Dot(PAttn[batch, msl, head, msl], V[batch, msl, head, d_v], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{1\}, out\_batch\_dims=\{0,2\})
+    $$
+  * ___FIXME: AMP的时候输入和输出使用FP16；MHA Fusion到此为止也许就可以了，继续fuse的话反向还是需要计算出这个结果___
 
 * __(9) 重新合并 $head$__
-  $Attn[batch, msl, d_{\text{model}}] = Reshape(Attn[batch, msl, head, d_v])$
-
+  * $Attn[batch, msl, d_{\text{model}}] = Reshape(Attn[batch, msl, head, d_v])$
 * __(10) 最后一个Linear__
-  $Out[batch, msl, d_{\text{model}}] = Dot(Attn[batch, msl, d_{\text{model}}], WO[d_{\text{model}}, d_{\text{model}}])$
+  * $Out[batch, msl, d_{\text{model}}] = Dot(Attn[batch, msl, d_{\text{model}}], WO[d_{\text{model}}, d_{\text{model}}])$
+  * ___FIXME: 这一步的计算不需要Fusion到MHA中，否则前面的Dot在反向计算的时候需要重新计算出来，这里需要进行权衡。___
 
 这样的计算流程可以去掉所有的 transpose 操作，网络中后续的计算都是按照 $Out[batch, msl, d_{\text{model}}]$ layout进行的。
+
+
+## MHA 计算负载
+
+|$Args/Models$|SD Clip|SD Unet|Bert Base|Bert Large|GPT-2 XL|GPT-3|GPT-4 (Est.)|
+|-------------|-------|-------|---------|----------|--------|-----|------------|
+|$msl$             |77|32400|512|512|2048|3072|32000|
+|$d_{\text{model}}$|768|320|768|1024|1600|12288|25600|
+|$head$            |12|5|12|16|25|96|160|
+
+## MHA 算子实现
+
+根据上面描述的计算过程和计算负载可以发现，$QK^T[batch, msl_m, head, msl_n]$ 在一些计算任务中将会是一个比较大的 Teansor，系统在这里会遇到存储瓶颈。我们需要实现的MHA算子需要将这个巨大的Tensor分片后隐藏到 L1、L2，或者只占用较少的L3的条件下，完成这个计算。训练过程中反向计算的时候需要重新计算出这个 Tensor，会有额外的计算量。由此可见这个MHA算子本身并不会有直接的性能提升，而是用计算换取存储的优化，保证达模型功能。优化存储有助于提高BatchSize，使得系统能够有更高的利用率。
+
+
+### MHA 算子实现：Cluster Level 并行
+
+从计算过程中可以确定 $batch$ 和 $msl_m$ 这两个维度是可以向后传递的，4C Split 作用在这两个维度上的话不会导致反复发生Split-Merge，以便于提高整体性能。选择 $batch$ 维度可能的风险是他的数值在大模型训练任务中可能会比较小，无法让整个SOC满负载工作。而选择 $msl_m$ 的话不会发生这种负载不够或者不均衡的情况，他的数值相对于ClusterNums而言已经足够大了，但是切分 $msl_m$ 维度会导致 RHS 需要完整进入到每一个Cluster，对整个SOC而言，全部Cluster上的RHS是重复的。从性能优化的角度应该优先切分 $batch$ ，但应该考虑利用率：
+
+  $$
+  utilization = { double(batch) \over ((batch + cluster_{\text{muns}} - 1) / cluster_{\text{muns}}) * cluster_{\text{muns}}}
+  $$
+
+* 如果 utilization 大于阈值（比如 80%）应该优先选择将 $batch$ 切分到不同的Cluster上并行
+* 如果 utilization 小于阈值，那么应该优先将 $msl_m$切分到不同的Cluster上并行。
+* 阈值需要根据 RHS 数据量的大小进行计算，到底是选择负载均衡还是选择数据重复搬运，需要权衡。
+
+接下来我们只讨论一个 Cluster 内部的计算。
+
+### MHA 算子实现：Layout
+
+我们使用下面的符号来描述分配到一个Cluster上的计算任务。$batch$ 和 $ms_m$ 都可能被切分，这里开始使用 $b0$ 和 $m$来表示；为了更清晰表达BatchDot的计算，使用$b1$=$head$，表示这也是一个Batch维度。这里需要注意的是XLA算子定义中支持 BatchDot的输入支持 `lhs_batch_dims={}` 和`rhs_batch_dims={}`都是多维并且可以是不连续维度的，但是输出要求一定是 ___OutputLayout={Batch, M, N}___ ，XLA的这种定义导致了Transformer中需要多次的 Transpose 操作，因为 $head$ 和 $d_k$ 在这里虽然是被切分开成为了两个维度，但是后面的计算中他们还会合成 $d_{\text{model}} = head*d_k$，所以这里需要实现的是输出 ___OutputLayout___={$batch$, $msl_m$, $head$, $msl_n$} 和输入一样，保持两个分开的Batch维度。
+
+$msl_n$ 维度是后续Softmax计算中需要的完整维度，这个维度的数据如果能够完整保存到L1的话，那么后续的计算时可以在L1上完成传递的；如果不行那么就需要完整保存到L2上，这样可能会引起SIP读写L2发生`bank conflict`；如果还是无法完整放在L2的话，那么需要在L3上开一个临时buffer，接下来分别进行分析。假设 $QK^T$计算优先在 $batch$, $msl_m$ 以及 $head$ 维度进行了切分，切分后分别是 $b0$, $m$以及$b1$，那么计算可以表示成：
+
+  $$
+    QK^T[b0, m, b1, msl_n] = Dot(Q[b0, m, b1, d_k], K[b0, msl_n, b1, d_k], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{3\}, out\_batch\_dims=\{0,2\})
+  $$
+
+### MHA 算子实现：通过L1交换数据
+
+这个方案希望每个Sip都能计算出完整的$msl_n$，这就要求$msl_n$的值不能过大。而我们实现MHA融合算子的目的是为了解决$msl_n$过大给系统带来的存储压力，所以这种条件下合理的支持范围是比较小的。在Dorado上拥有1M的L1，相对比Pavo的512KB L1 能够支持的范围要大的多。
+
+#### （1）Dot QK
+
+ConvGen有计算限制，如果不满足这些最小size的限制就需要用户padiding到最小size。在这个约束条件下，我们计算一下(ping-pong: pp)：
+* L1=512KB 时的支持上限：
+  * $ n = (512*1024-m*k*bpe*pp)/(m*bpe + k*bpe*pp)$
+    * when m=64, k=16, bpe=4, pp=2: n=1344
+    * when m=64, k=16, bpe=4, pp=1: n=1625
+    * when m=64, k=16, bpe=2, pp=2: n=2709
+    * when m=64, k=16, bpe=2, pp=1: n=3264
+* L1=1024KB 时的支持上限：
+  * $ n = (1024*1024-m*k*bpe*pp)/(m*bpe + k*bpe*pp)$
+  * when m=64, k=16, bpe=4, pp=2: n=2709
+  * when m=64, k=16, bpe=4, pp=1: n=3264
+  * when m=64, k=16, bpe=2, pp=2: n=5440
+  * when m=64, k=16, bpe=2, pp=1: n=6540
+
+这样可以得到一些结论：通过L1交换数据的方案，在Pavo上没有机会支持到$msl_n=4096$；而在Dorado上混精可以开ping-pong支持$msl_n=4096$
+
+##### (2) Tiling
+
+
+
+
+#### MHA 算子实现：$Q$
 
 ## Multi-head Attention Gradient
 
 TODO
+
+
+dddd
+d
+d
+d
+d
+d
+d
+d

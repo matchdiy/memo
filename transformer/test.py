@@ -139,6 +139,13 @@ class Layer_norm(torch.nn.Module):
     std = torch.sqrt(var + self.eps)
     return (x - mean[:,None,None,None]) / std[:,None,None,None]
 
+
+
+def l1_forward(size, m, k, pp, bpe):
+  n = (size - m*k*bpe*pp)/(m*bpe + k*bpe*pp)
+  print("L1-Forward: size={0}KB, m={1}, k={2}, bpe={3}, pp={4}: n={5}".format(size/1024, m, k, bpe, pp, n))
+
+
 if __name__ == '__main__':
   mini_batch = 4
   d_model = 512
@@ -148,6 +155,15 @@ if __name__ == '__main__':
   msl = 128
   head_nums = 8
 
+  l1_forward(size=512*1024, m=64, k=16, pp=2, bpe=4)
+  l1_forward(size=512*1024, m=64, k=16, pp=1, bpe=4)
+  l1_forward(size=512*1024, m=64, k=16, pp=2, bpe=2)
+  l1_forward(size=512*1024, m=64, k=16, pp=1, bpe=2)
+
+  l1_forward(size=1024*1024, m=64, k=16, pp=2, bpe=4)
+  l1_forward(size=1024*1024, m=64, k=16, pp=1, bpe=4)
+  l1_forward(size=1024*1024, m=64, k=16, pp=2, bpe=2)
+  l1_forward(size=1024*1024, m=64, k=16, pp=1, bpe=2)
   ### Test 1
   # test_embedding(None)
   # test_embedding(1.0)
@@ -166,26 +182,26 @@ if __name__ == '__main__':
   # print('mult_head_att_out.shape={}'.format(res.shape))
 
 
-  ## LayerNormal: last dim
-  dummy, batch, sentence_length, embedding_dim = 2, 3, 4, 5
-  embedding = torch.randn(dummy, batch, sentence_length, embedding_dim)
-  layer_norm = torch.nn.LayerNorm(embedding_dim)
-  # Activate module
-  activate = layer_norm(embedding)
-  print(embedding.shape)
+  # ## LayerNormal: last dim
+  # dummy, batch, sentence_length, embedding_dim = 2, 3, 4, 5
+  # embedding = torch.randn(dummy, batch, sentence_length, embedding_dim)
+  # layer_norm = torch.nn.LayerNorm(embedding_dim)
+  # # Activate module
+  # activate = layer_norm(embedding)
+  # print(embedding.shape)
   
-  # Image Example
-  N, C, H, W = 3, 4, 5, 6
-  input = torch.randn(N, C, H, W)
-  # Normalize over the last three dimensions (i.e. the channel and spatial dimensions)
-  # as shown in the image below
-  layer_norm = torch.nn.LayerNorm([C, H, W])
-  output = layer_norm(input)
-  print(input.shape)
-  print(output[0,0,0,:])
+  # # Image Example
+  # N, C, H, W = 3, 4, 5, 6
+  # input = torch.randn(N, C, H, W)
+  # # Normalize over the last three dimensions (i.e. the channel and spatial dimensions)
+  # # as shown in the image below
+  # layer_norm = torch.nn.LayerNorm([C, H, W])
+  # output = layer_norm(input)
+  # print(input.shape)
+  # print(output[0,0,0,:])
   
-  ln = Layer_norm()
-  activate1 = ln(input)
-  print(activate1.shape)
-  print(activate1[0,0,0,:])
+  # ln = Layer_norm()
+  # activate1 = ln(input)
+  # print(activate1.shape)
+  # print(activate1[0,0,0,:])
 
