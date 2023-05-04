@@ -141,9 +141,28 @@ class Layer_norm(torch.nn.Module):
 
 
 
-def l1_forward(size, m, k, pp, bpe):
+def l1_forward_n(size, m, k, pp, bpe):
   n = (size - m*k*bpe*pp)/(m*bpe + k*bpe*pp)
-  print("L1-Forward: size={0}KB, m={1}, k={2}, bpe={3}, pp={4}: n={5}".format(size/1024, m, k, bpe, pp, n))
+  print("L1-Forward: size={0}KB, m={1}, k={2}, bpe={3}, pp={4}: n={5}".format(
+    size/1024, m, k, bpe, pp, n))
+
+def l1_forward(size, lhs, rhs, out, bpe):
+  print("{}x{}_{}x{}_{}x{}_{}x{}x{}".format(lhs[0], lhs[1], rhs[0], rhs[1], 
+                                    out[0], out[1], lhs[2], rhs[2], out[2]))
+  lhs_size = lhs[0] * lhs[1] * bpe
+  rhs_size = rhs[0] * rhs[1] * bpe
+  out_size = out[0] * out[1] * bpe
+  print(" - lhs size={}KB, buffer={}KB".format(int(lhs_size//1024), int(lhs_size//1024) * lhs[2]))
+  print(" - rhs size={}KB, buffer={}KB".format(int(rhs_size//1024), int(rhs_size//1024) * rhs[2]))
+  print(" - out size={}KB, buffer={}KB".format(int(out_size//1024), int(out_size//1024) * out[2]))
+
+  utili = (lhs_size*lhs[2] + rhs_size*rhs[2] + out_size) / size
+  print(" - memory used utilization: {}".format(utili))
+  if utili < 1.0:
+    print("OK")
+  else:
+    print("NG")
+
 
 
 if __name__ == '__main__':
@@ -155,15 +174,18 @@ if __name__ == '__main__':
   msl = 128
   head_nums = 8
 
-  l1_forward(size=512*1024, m=64, k=16, pp=2, bpe=4)
-  l1_forward(size=512*1024, m=64, k=16, pp=1, bpe=4)
-  l1_forward(size=512*1024, m=64, k=16, pp=2, bpe=2)
-  l1_forward(size=512*1024, m=64, k=16, pp=1, bpe=2)
+  l1_forward_n(size=512*1024, m=64, k=16, pp=2, bpe=4)
+  l1_forward_n(size=512*1024, m=64, k=16, pp=1, bpe=4)
+  l1_forward_n(size=512*1024, m=64, k=16, pp=2, bpe=2)
+  l1_forward_n(size=512*1024, m=64, k=16, pp=1, bpe=2)
+  l1_forward_n(size=1024*1024, m=64, k=16, pp=2, bpe=4)
+  l1_forward_n(size=1024*1024, m=64, k=16, pp=1, bpe=4)
+  l1_forward_n(size=1024*1024, m=64, k=16, pp=2, bpe=2)
+  l1_forward_n(size=1024*1024, m=64, k=16, pp=1, bpe=2)
 
-  l1_forward(size=1024*1024, m=64, k=16, pp=2, bpe=4)
-  l1_forward(size=1024*1024, m=64, k=16, pp=1, bpe=4)
-  l1_forward(size=1024*1024, m=64, k=16, pp=2, bpe=2)
-  l1_forward(size=1024*1024, m=64, k=16, pp=1, bpe=2)
+  l1_forward(size=1024*1024, lhs=[32, 64, 1], rhs=[4096, 32, 2], out=[32, 4096, 1], bpe=2)
+  l1_forward(size=1024*1024, lhs=[64, 64, 1], rhs=[4096, 16, 2], out=[64, 4096, 1], bpe=2)
+  
   ### Test 1
   # test_embedding(None)
   # test_embedding(1.0)

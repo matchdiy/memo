@@ -332,11 +332,11 @@ class MultiHeadedAttention(torch.nn.Module):
   * $$
     Attn[batch, msl, head, d_v] = Dot(PAttn[batch, msl, head, msl], V[batch, msl, head, d_v], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{1\}, out\_batch\_dims=\{0,2\})
     $$
-  * ___FIXME: AMP的时候输入和输出使用FP16；MHA Fusion到此为止也许就可以了，继续fuse的话反向还是需要计算出这个结果___
+  * ___FIXME: AMP的时候输入和输出使用FP16；MHA Fusion到此为止也许就可以了，继续fuse的话反向还是需要计算出这个结果___。（END）
 
-* __(9) 重新合并 $head$__
+* __(x) 重新合并 $head$__
   * $Attn[batch, msl, d_{\text{model}}] = Reshape(Attn[batch, msl, head, d_v])$
-* __(10) 最后一个Linear__
+* __(x) 最后一个Linear__
   * $Out[batch, msl, d_{\text{model}}] = Dot(Attn[batch, msl, d_{\text{model}}], WO[d_{\text{model}}, d_{\text{model}}])$
   * ___FIXME: 这一步的计算不需要Fusion到MHA中，否则前面的Dot在反向计算的时候需要重新计算出来，这里需要进行权衡。___
 
@@ -382,29 +382,116 @@ $msl_n$ 维度是后续Softmax计算中需要的完整维度，这个维度的�
 
 ### MHA 算子实现：通过L1交换数据
 
-这个方案希望每个Sip都能计算出完整的$msl_n$，这就要求$msl_n$的值不能过大。而我们实现MHA融合算子的目的是为了解决$msl_n$过大给系统带来的存储压力，所以这种条件下合理的支持范围是比较小的。在Dorado上拥有1M的L1，相对比Pavo的512KB L1 能够支持的范围要大的多。
+这个方案要求每个Sip都能计算出完整的$msl_n$，这就要求$msl_n$的值不能过大。而我们实现MHA融合算子的目的是为了解决$msl_n$过大给系统带来的存储压力，所以这种条件下合理的支持范围是比较小的。在Dorado上拥有1M的L1，相对比Pavo的512KB L1 能够支持的范围要大的多。
 
-#### （1）Dot QK
+#### L1::QKt (Dot)
 
-ConvGen有计算限制，如果不满足这些最小size的限制就需要用户padiding到最小size。在这个约束条件下，我们计算一下(ping-pong: pp)：
-* L1=512KB 时的支持上限：
+ConvGen有计算限制，如果不满足这些最小size的限制，需要用户padiding到最小size。在这个约束条件下，我们计算一下(ping-pong: pp)：
+* L1=512KB 的支持上限：
   * $ n = (512*1024-m*k*bpe*pp)/(m*bpe + k*bpe*pp)$
     * when m=64, k=16, bpe=4, pp=2: n=1344
     * when m=64, k=16, bpe=4, pp=1: n=1625
     * when m=64, k=16, bpe=2, pp=2: n=2709
     * when m=64, k=16, bpe=2, pp=1: n=3264
-* L1=1024KB 时的支持上限：
+* L1=1024KB 的支持上限：
   * $ n = (1024*1024-m*k*bpe*pp)/(m*bpe + k*bpe*pp)$
   * when m=64, k=16, bpe=4, pp=2: n=2709
   * when m=64, k=16, bpe=4, pp=1: n=3264
   * when m=64, k=16, bpe=2, pp=2: n=5440
   * when m=64, k=16, bpe=2, pp=1: n=6540
 
-这样可以得到一些结论：通过L1交换数据的方案，在Pavo上没有机会支持到$msl_n=4096$；而在Dorado上混精可以开ping-pong支持$msl_n=4096$
+这样可以得到一些结论：通过L1交换数据的方案，在Pavo上没有机会支持到$msl_n=4096$；而在Dorado上只有混精模式下可以开ping-pong支持$msl_n=4096$（SD模型 512x512分辨率下的msl）。__接下来我们只讨论Dorado混精下，msl=4096时的支持方案;同时基于L1交换数据数据的方案由于支持的范围较小，实现这个方案优先级定为P2__。
 
-##### (2) Tiling
+* L1 Tiling
+  * 必须让b1=1，这样可以避免transpose操作，如果有空间剩余可以通过增加b0来调节。
+  * lhs k 应该尽量大，最好是完整的dv，以便于减少DMA配置次数。
+  * lhs和out不需要ping-pong，rhs需要ping-pong buffer
+  * out 在L1上从address=0x00开始分配，lhs和rhs依次在其后面分配，这样可以减少碎片。
+  * L1上要预留16KB stack，注意无法使用完整的L1
+  * 可能的切分方案(1)和(2)：
+      | |lhs  |rhs      |out    | |
+      |-|-----|---------|-------|-|
+      |1|64x64|4096x16x2|64x4096|如果convgen可以输出layout{n,m}，选方案1|
+      |2|32x64|4096x32x2|32x4096|如果convgen只能输出layout{m,n}，选方案2|
+
+方案的选择和后续计算有关，我们把全部计算流程走完，再讨论 L2 tiling。
+
+#### L1::Scale-Max
+
+Softmax计算中需要的 Max 计算可以提前到这里和 Mul 一起完成:
+
+* 方案一的计算过程：
+  * $inout[64,4096], row_max[64] = ScaleMaxKernel(inout[64, 4096])$
+  * inout 512KB无法clone出一个完整的buffer用于存放 transpose 的结果。
+  * Pseudocode
+    ```C++
+      int sub_view = 1024;
+      // alloc
+      void* MaxBuffer = alloc_l1(0x80000, 64 * sizeof(fp16));
+      void* Scratch = alloc_l1(0x80000+64*sizeof(fp16), 4096*sub_view*2);
+
+      int i = 0;
+      PingBuf[sub_view, 64] = Transpose(inout[64, 4096].view(:,i*sub_view:(i+1)*sub_view), sdma_vc0);
+      for (i = 1; i < 4096/sub_view; ++i) {
+        PongBuf[sub_view, 64] = Transpose(inout[64, 4096].view(:,i*sub_view:(i+1)*sub_view), sdma_vc1);
+        wait(sdma_vc0);
+        PingBuf, MaxBuffer = ScaleMax(PingBuf, MaxBuffer);
+        inout.view(:,(i-1)*sub_view:i*sub_view) = Transpose(PingBuf, sdma_vc0)
+        wait(sdma_vc0);
+        swap(PingBuf, PongBuf);
+        swap(sdma_vc0, sdma_vc1);
+      }
+      // last time
+      wait(sdma_vc0);
+      Scratch, MaxBuffer = ScaleMax(PingBuf, MaxBuffer);
+      inout.view(:, (i-1)*sub_view : i*sub_view) = Transpose(Scratch, sdma_vc0)
+      wait(sdma_vc0);
+
+      return Scratch, MaxBuffer;
+      ```
+  * S2S transpose效率不高并且次数过多，性能堪忧。
+* 方案二的计算过程
+  * $scale[2048, 32, 2], row_max[32] = ScaleMaxKernel(in[32, 4096])$
+  * Pseudocode
+    ```C++
+      // 0x00            addr           L1_SIZE
+      // |----------------------------------------|
+      // | inout | max_buf | ...... | inout_trans |
+      // |----------------------------------------|
+      void* MaxBuffer = alloc_l1(inout.size, 64*sizeof(fp16));
+
+      int addr = L1_SIZE - in.size;
+      void *ScaleBuffer = alloc_l1(addr, in.size);
+      
+      int sub_view = 512
+      // 64 fp16 elements per VR
+      in[64, 2048] = Reshape(in[32, 4096]);
+      
+      //
+      int i = 0;
+      ScaleBuffer.view(i*sub_view : (i+1)*sub_view, :) = Transpose(in[64, 2048].view(:, i*sub_view : (i+1)*sub_view), sdma_vc0);
+      for (i = 1; i < 2048/sub_view; ++i) {
+        // prefetch next
+        ScaleBuffer.view(i*sub_view : (i+1)*sub_view, :) = Transpose(in[64, 2048].view(:, i*sub_view : (i+1)*sub_view), sdma_vc1);
+        wait(sdma_vc0);
+        ScaleBuffer.view((i-1)*sub_view : (i)*sub_view, :), MaxBuffer = ScaleMax(ScaleBuffer.view((i-1)*sub_view : (i)*sub_view, :), MaxBuffer);
+        swap(sdma_vc0, sdma_vc1);
+      }
+      // last
+      wait(sdma_vc0);
+      ScaleBuffer.view((i-1)*sub_view : (i)*sub_view, :), MaxBuffer = ScaleMax(ScaleBuffer.view((i-1)*sub_view : (i)*sub_view, :), MaxBuffer);
+
+      // compare odd and even
+      MaxBuffer[32] = CompareOddEven(MaxBuffer);
+
+      return ScaleBuffer, MaxBuffer;
+    ```
 
 
+
+### MHA 算子实现：通过L3交换数据
+
+### MHA 算子实现：通过L2交换数据
 
 
 #### MHA 算子实现：$Q$
