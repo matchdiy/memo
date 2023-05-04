@@ -43,8 +43,8 @@
 |dimension of value        |$d_v$             | 64  |$d_k=d_v$|
 |dimension of model        |$d_{\text{model}}$| 512 |$d_{\text{model}}=h \cdot d_v$|
 |dimension of feed forward |$d_{\text{ff}}$   | 2048|    |
-|feature                   |                  | |[$batch$, $msl$]|
-|query                     |Q                 | |[$batch$, $src\_sl$, $d_{\text{model}}$] or [$batch$, $msl$, $d_{\text{model}}$]|
+|feature                   |                  | |[ $batch$, $msl$ ]|
+|query                     |Q                 | |[ $batch$, $src\_sl$, $d_{\text{model}}$ ] or [ $batch$, $msl$, $d_{\text{model}}$ ]|
 |key                       |K                 | |[$batch$, $tgt\_sl$, $d_{\text{model}}$] or [$batch$, $msl$, $d_{\text{model}}$]|
 |value                     |V                 | |[$batch$, $tgt\_sl$, $d_{\text{model}}$] or [$batch$, $msl$, $d_{\text{model}}$]|
 |token embedding table     |                  | |[$vocabs$, $d_{\text{model}}$]|
@@ -300,9 +300,9 @@ class MultiHeadedAttention(torch.nn.Module):
 
 * __(2) 拆出 $head$__
 
-  $Q[batch, msl, head, d_k] = Reshape(Q[batch, msl, d_{\text{model}}])$
-  $K[batch, msl, head, d_k] = Reshape(K[batch, msl, d_{\text{model}}])$
-  $V[batch, msl, head, d_v] = Reshape(V[batch, msl, d_{\text{model}}])$
+  $Q[ batch, msl, head, d_k] = Reshape(Q[batch, msl, d_{\text{model}}])$
+  $K[ batch, msl, head, d_k] = Reshape(K[batch, msl, d_{\text{model}}])$
+  $V[ batch, msl, head, d_v] = Reshape(V[batch, msl, d_{\text{model}}])$
 
 * __(3) 计算 $QK^T$__
   * $$
