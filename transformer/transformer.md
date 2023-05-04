@@ -206,10 +206,19 @@ class PositionalEncoding(nn.Module):
 
 Attention的三个输入 Q(qurey), K(Key), V(value) 拥有相同的Shap，他们是这样计算的：
 
-$ Q[ batch, msl, d_k ] = Input[ batch, msl, d_{\text{model}} ] * QW[ d_{\text{model}}, d_k ]$
-$ K[ batch, msl, d_k ] = Input[ batch, msl, d_{\text{model}} ] * KW[ d_{\text{model}}, d_k ]$
-$ V[ batch, msl, d_v ] = Input[ batch, msl, d_{\text{model}} ] * VW[ d_{\text{model}}, d_v ]$
-* __注意__: 这里的描述不是多头，也就是$head$=1，所以 $d_k$==$d_{\text{model}}$
+$$ 
+Q[ batch, msl, d_k ] = Input[ batch, msl, d_{\text{model}} ] * QW[ d_{\text{model}}, d_k ]
+$$
+
+$$ 
+K[ batch, msl, d_k ] = Input[ batch, msl, d_{\text{model}} ] * KW[ d_{\text{model}}, d_k ]
+$$
+
+$$
+V[ batch, msl, d_v ] = Input[ batch, msl, d_{\text{model}} ] * VW[ d_{\text{model}}, d_v ]
+$$
+
+__注意__: 这里的描述不是多头，也就是$head$=1，所以 $d_k$==$d_{\text{model}}$
 
 $$
    \mathrm{Attention}(Q, K, V) = \mathrm{softmax}(\frac{QK^T}{\sqrt{d_k}})V
