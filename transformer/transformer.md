@@ -218,7 +218,7 @@ $$
 V[ batch, msl, d_v ] = Input[ batch, msl, d_{\text{model}} ] * VW[ d_{\text{model}}, d_v ]
 $$
 
-__注意__: 这里的描述不是多头，也就是$head$=1，所以 $d_k$==$d_{\text{model}}$
+__注意__: 这里的描述不是多头，也就是 $head=1$，所以 $d_k==d_{\text{model}}$
 
 $$
    \mathrm{Attention}(Q, K, V) = \mathrm{softmax}(\frac{QK^T}{\sqrt{d_k}})V
