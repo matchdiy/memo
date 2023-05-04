@@ -331,9 +331,11 @@ $$
 
 
 * __(3) 计算 $QK^T$__
+
 $$
 QK^T[ batch, msl_m, head, msl_n ] = Dot(Q[ batch, msl_m, head, d_k ], K[ batch, msl_n, head, d_k ], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{3\}, out\_batch\_dims=\{0,2\})
 $$
+
   * ___FIMXE：AMP时输入和输出都是 FP16___
   * 注意：$msl_m==msl_n$ 这里只是为了标注出不同的维度意义。
 
@@ -355,9 +357,11 @@ $$
   * ___FIXME：如果是基于当前Tiling部分做Dropout，这里恐怕是有算法上的风险的___
 
 * __(8) 计算Out__
-  * $$
+
+$$
     Attn[ batch, msl, head, d_v ] = Dot(PAttn[ batch, msl, head, msl ], V[ batch, msl, head, d_v ], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{1\}, out\_batch\_dims=\{0,2\})
-    $$
+$$
+
   * ___FIXME: AMP的时候输入和输出使用FP16；MHA Fusion到此为止也许就可以了，继续fuse的话反向还是需要计算出这个结果___。（END）
 
 * __(x) 重新合并 $head$__
