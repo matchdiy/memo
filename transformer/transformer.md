@@ -303,22 +303,39 @@ class MultiHeadedAttention(torch.nn.Module):
 
 * __(1) 计算Q，K，V三个变量，他们是 MultHeadAtten 的输入，不需要融合进来__
 
-  $ Q[ batch, msl, d_{\text{model}} ] = Dot(Input[ batch, msl, d_{\text{model}} ], QW[ d_{\text{model}}, d_{\text{model}} ])$
-  $ K[ batch, msl, d_{\text{model}} ] = Dot(Input[ batch, msl, d_{\text{model}} ], WK[ d_{\text{model}}, d_{\text{model}} ])$
-  $ V[ batch, msl, d_{\text{model}} ] = Dot(Input[ batch, msl, d_{\text{model}} ], WV[ d_{\text{model}}, d_{\text{model}} ])$
+$$
+Q[ batch, msl, d_{\text{model}} ] = Dot(Input[ batch, msl, d_{\text{model}} ], QW[ d_{\text{model}}, d_{\text{model}} ])
+$$
+
+$$ 
+K[ batch, msl, d_{\text{model}} ] = Dot(Input[ batch, msl, d_{\text{model}} ], WK[ d_{\text{model}}, d_{\text{model}} ])
+$$
+
+$$
+V[ batch, msl, d_{\text{model}} ] = Dot(Input[ batch, msl, d_{\text{model}} ], WV[ d_{\text{model}}, d_{\text{model}} ])
+$$
 
 * __(2) 拆出 $head$__
 
-  $Q[ batch, msl, head, d_k ] = Reshape(Q[ batch, msl, d_{\text{model}} ])$
-  $K[ batch, msl, head, d_k ] = Reshape(K[ batch, msl, d_{\text{model}} ])$
-  $V[ batch, msl, head, d_v ] = Reshape(V[ batch, msl, d_{\text{model}} ])$
+$$
+Q[ batch, msl, head, d_k ] = Reshape(Q[ batch, msl, d_{\text{model}} ])
+$$
+
+$$
+K[ batch, msl, head, d_k ] = Reshape(K[ batch, msl, d_{\text{model}} ])
+$$
+
+$$
+V[ batch, msl, head, d_v ] = Reshape(V[ batch, msl, d_{\text{model}} ])
+$$
+
 
 * __(3) 计算 $QK^T$__
-  * $$
-    QK^T[ batch, msl_m, head, msl_n ] = Dot(Q[ batch, msl_m, head, d_k ], K[ batch, msl_n, head, d_k ], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{3\}, out\_batch\_dims=\{0,2\})
-    $$
+$$
+QK^T[ batch, msl_m, head, msl_n ] = Dot(Q[ batch, msl_m, head, d_k ], K[ batch, msl_n, head, d_k ], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{3\}, out\_batch\_dims=\{0,2\})
+$$
   * ___FIMXE：AMP时输入和输出都是 FP16___
-  * 注意：$msl_m == msl_n$，这里只是为了标注出不同的维度意义。
+  * 注意：$msl_m==msl_n$ 这里只是为了标注出不同的维度意义。
 
 * __(4) 计算 Scale__
   * $QK^T[ batch, msl, head, msl ] = Mul(QK^T[ batch, msl, head, msl ], 1/\sqrt{d_{\text{model}}})$
