@@ -45,24 +45,24 @@
 |dimension of feed forward |$d_{\text{ff}}$   | 2048|    |
 |feature                   |                  | |[ $batch$, $msl$ ]|
 |query                     |Q                 | |[ $batch$, $src\_sl$, $d_{\text{model}}$ ] or [ $batch$, $msl$, $d_{\text{model}}$ ]|
-|key                       |K                 | |[$batch$, $tgt\_sl$, $d_{\text{model}}$] or [$batch$, $msl$, $d_{\text{model}}$]|
-|value                     |V                 | |[$batch$, $tgt\_sl$, $d_{\text{model}}$] or [$batch$, $msl$, $d_{\text{model}}$]|
-|token embedding table     |                  | |[$vocabs$, $d_{\text{model}}$]|
-|position embedding table  |                  | |[$msl$, $d_{\text{model}}$]|
-|weight of query           |QW                | |[$d_{\text{model}}$, $d_{\text{model}}$]|
-|weight of key             |KW                | |[$d_{\text{model}}$, $d_{\text{model}}$]|
-|weight of value           |VW                | |[$d_{\text{model}}$, $d_{\text{model}}$]|
-|weight of output          |WO                | |[$d_{\text{model}}$, $d_{\text{model}}$]|
-|weight 1 of layernorm     |l1                | |[$d_{\text{model}}$]|
-|weight 1 of FFN           |W1                | |[$d_{\text{model}}$, $d_{\text{ff}}$]|
-|bias 1 of FFN             |b1                | |[$d_{\text{model}}$]|
-|weight 2 of layernorm     |l2                | |[$d_{\text{model}}$]|
-|weight 2 of FFN           |W2                | |[$d_{\text{ff}}$, $d_{\text{model}}$]|
-|bias 2 of FFN             |b2                | |[$d_{\text{model}}$]|
+|key                       |K                 | |[ $batch$, $tgt\_sl$, $d_{\text{model}}$ ] or [ $batch$, $msl$, $d_{\text{model}}$ ]|
+|value                     |V                 | |[ $batch$, $tgt\_sl$, $d_{\text{model}}$ ] or [ $batch$, $msl$, $d_{\text{model}}$ ]|
+|token embedding table     |                  | |[ $vocabs$, $d_{\text{model}}$ ]|
+|position embedding table  |                  | |[ $msl$, $d_{\text{model}}$ ]|
+|weight of query           |QW                | |[ $d_{\text{model}}$, $d_{\text{model}}$ ]|
+|weight of key             |KW                | |[ $d_{\text{model}}$, $d_{\text{model}}$ ]|
+|weight of value           |VW                | |[ $d_{\text{model}}$, $d_{\text{model}}$ ]|
+|weight of output          |WO                | |[ $d_{\text{model}}$, $d_{\text{model}}$ ]|
+|weight 1 of layernorm     |l1                | |[ $d_{\text{model}}$ ]|
+|weight 1 of FFN           |W1                | |[ $d_{\text{model}}$, $d_{\text{ff}}$ ]|
+|bias 1 of FFN             |b1                | |[ $d_{\text{model}}$ ]|
+|weight 2 of layernorm     |l2                | |[ $d_{\text{model}}$ ]|
+|weight 2 of FFN           |W2                | |[ $d_{\text{ff}}$, $d_{\text{model}}$ ]|
+|bias 2 of FFN             |b2                | |[ $d_{\text{model}}$ ]|
 
 * $msl$ 和 $vocabs$ 的值取决于数据集
 * $d_{\text{ff}}$: 一般习惯 $d_{\text{ff}}=4 \cdot d_{\text{model}}$，但论文没有说明这一点
-* QW，KW，VW: 无论 $head$ 是多少这几个权重的shape都是 [$d_{\text{model}}$, $d_{\text{model}}$]，多头是指多个attention以sub的方式共同使用W，于是才有：$d_v=d_{\text{model}}/head$
+* QW，KW，VW: 无论 $head$ 是多少这几个权重的shape都是 [ $d_{\text{model}}$, $d_{\text{model}}$ ]，多头是指多个attention以sub的方式共同使用W，于是才有：$d_v=d_{\text{model}}/head$
 
 # Embedding
 
@@ -206,9 +206,9 @@ class PositionalEncoding(nn.Module):
 
 Attention的三个输入 Q(qurey), K(Key), V(value) 拥有相同的Shap，他们是这样计算的：
 
-* $ Q[batch, msl, d_k] = Input[batch, msl, d_{\text{model}}] * QW[d_{\text{model}}, d_k]$
-* $ K[batch, msl, d_k] = Input[batch, msl, d_{\text{model}}] * KW[d_{\text{model}}, d_k]$
-* $ V[batch, msl, d_v] = Input[batch, msl, d_{\text{model}}] * VW[d_{\text{model}}, d_v]$
+* $ Q[ batch, msl, d_k ] = Input[ batch, msl, d_{\text{model}} ] * QW[ d_{\text{model}}, d_k ]$
+* $ K[ batch, msl, d_k ] = Input[ batch, msl, d_{\text{model}} ] * KW[ d_{\text{model}}, d_k ]$
+* $ V[ batch, msl, d_v ] = Input[ batch, msl, d_{\text{model}} ] * VW[ d_{\text{model}}, d_v ]$
 * __注意__: 这里的描述不是多头，也就是$head$=1，所以 $d_k$==$d_{\text{model}}$
 
 $$
@@ -294,50 +294,50 @@ class MultiHeadedAttention(torch.nn.Module):
 
 * __(1) 计算Q，K，V三个变量，他们是 MultHeadAtten 的输入，不需要融合进来__
 
-  $ Q[batch, msl, d_{\text{model}}] = Dot(Input[batch, msl, d_{\text{model}}], QW[d_{\text{model}}, d_{\text{model}}])$
-  $ K[batch, msl, d_{\text{model}}] = Dot(Input[batch, msl, d_{\text{model}}], WK[d_{\text{model}}, d_{\text{model}}])$
-  $ V[batch, msl, d_{\text{model}}] = Dot(Input[batch, msl, d_{\text{model}}], WV[d_{\text{model}}, d_{\text{model}}])$
+  $ Q[ batch, msl, d_{\text{model}} ] = Dot(Input[ batch, msl, d_{\text{model}} ], QW[ d_{\text{model}}, d_{\text{model}} ])$
+  $ K[ batch, msl, d_{\text{model}} ] = Dot(Input[ batch, msl, d_{\text{model}} ], WK[ d_{\text{model}}, d_{\text{model}} ])$
+  $ V[ batch, msl, d_{\text{model}} ] = Dot(Input[ batch, msl, d_{\text{model}} ], WV[ d_{\text{model}}, d_{\text{model}} ])$
 
 * __(2) 拆出 $head$__
 
-  $Q[ batch, msl, head, d_k] = Reshape(Q[batch, msl, d_{\text{model}}])$
-  $K[ batch, msl, head, d_k] = Reshape(K[batch, msl, d_{\text{model}}])$
-  $V[ batch, msl, head, d_v] = Reshape(V[batch, msl, d_{\text{model}}])$
+  $Q[ batch, msl, head, d_k ] = Reshape(Q[ batch, msl, d_{\text{model}} ])$
+  $K[ batch, msl, head, d_k ] = Reshape(K[ batch, msl, d_{\text{model}} ])$
+  $V[ batch, msl, head, d_v ] = Reshape(V[ batch, msl, d_{\text{model}} ])$
 
 * __(3) 计算 $QK^T$__
   * $$
-    QK^T[batch, msl_m, head, msl_n] = Dot(Q[batch, msl_m, head, d_k], K[batch, msl_n, head, d_k], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{3\}, out\_batch\_dims=\{0,2\})
+    QK^T[ batch, msl_m, head, msl_n ] = Dot(Q[ batch, msl_m, head, d_k ], K[ batch, msl_n, head, d_k ], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{3\}, out\_batch\_dims=\{0,2\})
     $$
   * ___FIMXE：AMP时输入和输出都是 FP16___
   * 注意：$msl_m == msl_n$，这里只是为了标注出不同的维度意义。
 
 * __(4) 计算 Scale__
-  * $QK^T[batch, msl, head, msl] = Mul(QK^T[batch, msl, head, msl], 1/\sqrt{d_{\text{model}}})$
+  * $QK^T[ batch, msl, head, msl ] = Mul(QK^T[ batch, msl, head, msl ], 1/\sqrt{d_{\text{model}}})$
   * ___FIXME：AMP时使用 FP16 输入输出___
   
 * __(5) 选项 MaskFill__
-  * $QK^T[batch, msl, head, msl] = MaskFill(QK^T[batch, msl, head, msl] == 0, -1e9)$
+  * $QK^T[ batch, msl, head, msl ] = MaskFill(QK^T[ batch, msl, head, msl ] == 0, -1e9)$
   * mask value是负无穷，这样的目的是让mask==0的地方经过softmax后仍然是0.
   * ___FIXME：AMP时使用 FP16 输入和输出___
 
 * __(6) 计算 Softmax__
-  * $QK^T[batch, msl, head, msl] = Softmax(QK^T[batch, msl, head, msl], dim=-1)$
+  * $QK^T[ batch, msl, head, msl ] = Softmax(QK^T[ batch, msl, head, msl ], dim=-1)$
   * ___FIXME：AMP时，如果输入是FP16，那么计算过程中需要先转成FP32再计算，输出转成 FP16___
 
 * __(7) 选项 Dropout__
-  * $QK^T[batch, msl, head, msl] = Dropout(QK^T[batch, msl, head, msl], p = 0.1)$
+  * $QK^T[ batch, msl, head, msl ] = Dropout(QK^T[ batch, msl, head, msl ], p = 0.1)$
   * ___FIXME：如果是基于当前Tiling部分做Dropout，这里恐怕是有算法上的风险的___
 
 * __(8) 计算Out__
   * $$
-    Attn[batch, msl, head, d_v] = Dot(PAttn[batch, msl, head, msl], V[batch, msl, head, d_v], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{1\}, out\_batch\_dims=\{0,2\})
+    Attn[ batch, msl, head, d_v ] = Dot(PAttn[ batch, msl, head, msl ], V[ batch, msl, head, d_v ], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{1\}, out\_batch\_dims=\{0,2\})
     $$
   * ___FIXME: AMP的时候输入和输出使用FP16；MHA Fusion到此为止也许就可以了，继续fuse的话反向还是需要计算出这个结果___。（END）
 
 * __(x) 重新合并 $head$__
-  * $Attn[batch, msl, d_{\text{model}}] = Reshape(Attn[batch, msl, head, d_v])$
+  * $Attn[ batch, msl, d_{\text{model}} ] = Reshape(Attn[ batch, msl, head, d_v ])$
 * __(x) 最后一个Linear__
-  * $Out[batch, msl, d_{\text{model}}] = Dot(Attn[batch, msl, d_{\text{model}}], WO[d_{\text{model}}, d_{\text{model}}])$
+  * $Out[ batch, msl, d_{\text{model}} ] = Dot(Attn[ batch, msl, d_{\text{model}} ], WO[ d_{\text{model}}, d_{\text{model}} ])$
   * ___FIXME: 这一步的计算不需要Fusion到MHA中，否则前面的Dot在反向计算的时候需要重新计算出来，这里需要进行权衡。___
 
 这样的计算流程可以去掉所有的 transpose 操作，网络中后续的计算都是按照 $Out[batch, msl, d_{\text{model}}]$ layout进行的。
