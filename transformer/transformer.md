@@ -206,11 +206,11 @@ class PositionalEncoding(nn.Module):
 
 Attention的三个输入 Q(qurey), K(Key), V(value) 拥有相同的Shap，他们是这样计算的：
 
-$$ 
+$$
 Q[ batch, msl, d_k ] = Input[ batch, msl, d_{\text{model}} ] * QW[ d_{\text{model}}, d_k ]
 $$
 
-$$ 
+$$
 K[ batch, msl, d_k ] = Input[ batch, msl, d_{\text{model}} ] * KW[ d_{\text{model}}, d_k ]
 $$
 
@@ -307,7 +307,7 @@ $$
 Q[ batch, msl, d_{\text{model}} ] = Dot(Input[ batch, msl, d_{\text{model}} ], QW[ d_{\text{model}}, d_{\text{model}} ])
 $$
 
-$$ 
+$$
 K[ batch, msl, d_{\text{model}} ] = Dot(Input[ batch, msl, d_{\text{model}} ], WK[ d_{\text{model}}, d_{\text{model}} ])
 $$
 
@@ -329,49 +329,45 @@ $$
 V[ batch, msl, head, d_v ] = Reshape(V[ batch, msl, d_{\text{model}} ])
 $$
 
-
 * __(3) 计算 $QK^T$__
-
-$$
-QK^T[ batch, msl_m, head, msl_n ] = Dot(Q[ batch, msl_m, head, d_k ], K[ batch, msl_n, head, d_k ], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{3\}, out\_batch\_dims=\{0,2\})
-$$
-
-  * ___FIMXE：AMP时输入和输出都是 FP16___
+  * 计算式
+  $$
+  QK^T[ batch, msl_m, head, msl_n ] = Dot(Q[ batch, msl_m, head, d_k ], K[ batch, msl_n, head, d_k ], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{3\}, out\_batch\_dims=\{0,2\})
+  $$
+  * _FIMXE：AMP时输入和输出都是 FP16_
   * 注意：$msl_m==msl_n$ 这里只是为了标注出不同的维度意义。
 
 * __(4) 计算 Scale__
   * $QK^T[ batch, msl, head, msl ] = Mul(QK^T[ batch, msl, head, msl ], 1/\sqrt{d_{\text{model}}})$
-  * ___FIXME：AMP时使用 FP16 输入输出___
+  * _FIXME：AMP时使用 FP16 输入输出_
   
 * __(5) 选项 MaskFill__
   * $QK^T[ batch, msl, head, msl ] = MaskFill(QK^T[ batch, msl, head, msl ] == 0, -1e9)$
   * mask value是负无穷，这样的目的是让mask==0的地方经过softmax后仍然是0.
-  * ___FIXME：AMP时使用 FP16 输入和输出___
+  * _FIXME：AMP时使用 FP16 输入和输出_
 
 * __(6) 计算 Softmax__
   * $QK^T[ batch, msl, head, msl ] = Softmax(QK^T[ batch, msl, head, msl ], dim=-1)$
-  * ___FIXME：AMP时，如果输入是FP16，那么计算过程中需要先转成FP32再计算，输出转成 FP16___
+  * _FIXME：AMP时，如果输入是FP16，那么计算过程中需要先转成FP32再计算，输出转成 FP16_
 
 * __(7) 选项 Dropout__
   * $QK^T[ batch, msl, head, msl ] = Dropout(QK^T[ batch, msl, head, msl ], p = 0.1)$
-  * ___FIXME：如果是基于当前Tiling部分做Dropout，这里恐怕是有算法上的风险的___
+  * _FIXME：如果是基于当前Tiling部分做Dropout，这里恐怕是有算法上的风险的_
 
 * __(8) 计算Out__
-
-$$
-    Attn[ batch, msl, head, d_v ] = Dot(PAttn[ batch, msl, head, msl ], V[ batch, msl, head, d_v ], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{1\}, out\_batch\_dims=\{0,2\})
-$$
-
-  * ___FIXME: AMP的时候输入和输出使用FP16；MHA Fusion到此为止也许就可以了，继续fuse的话反向还是需要计算出这个结果___。（END）
+  * 计算式：
+  $$
+      Attn[ batch, msl, head, d_v ] = Dot(PAttn[ batch, msl, head, msl ], V[ batch, msl, head, d_v ], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{1\}, out\_batch\_dims=\{0,2\})
+  $$
+  * _FIXME: AMP的时候输入和输出使用FP16；MHA Fusion到此为止也许就可以了，继续fuse的话反向还是需要计算出这个结果_。
 
 * __(x) 重新合并 $head$__
   * $Attn[ batch, msl, d_{\text{model}} ] = Reshape(Attn[ batch, msl, head, d_v ])$
 * __(x) 最后一个Linear__
   * $Out[ batch, msl, d_{\text{model}} ] = Dot(Attn[ batch, msl, d_{\text{model}} ], WO[ d_{\text{model}}, d_{\text{model}} ])$
-  * ___FIXME: 这一步的计算不需要Fusion到MHA中，否则前面的Dot在反向计算的时候需要重新计算出来，这里需要进行权衡。___
+  * _FIXME: 这一步的计算不需要Fusion到MHA中，否则前面的Dot在反向计算的时候需要重新计算出来，这里需要进行权衡。_
 
 这样的计算流程可以去掉所有的 transpose 操作，网络中后续的计算都是按照 $Out[batch, msl, d_{\text{model}}]$ layout进行的。
-
 
 ## MHA 计算负载
 
@@ -384,7 +380,6 @@ $$
 ## MHA 算子实现
 
 根据上面描述的计算过程和计算负载可以发现，$QK^T[batch, msl_m, head, msl_n]$ 在一些计算任务中将会是一个比较大的 Teansor，系统在这里会遇到存储瓶颈。我们需要实现的MHA算子需要将这个巨大的Tensor分片后隐藏到 L1、L2，或者只占用较少的L3的条件下，完成这个计算。训练过程中反向计算的时候需要重新计算出这个 Tensor，会有额外的计算量。由此可见这个MHA算子本身并不会有直接的性能提升，而是用计算换取存储的优化，保证达模型功能。优化存储有助于提高BatchSize，使得系统能够有更高的利用率。
-
 
 ### MHA 算子实现：Cluster Level 并行
 
@@ -416,21 +411,31 @@ $msl_n$ 维度是后续Softmax计算中需要的完整维度，这个维度的�
 
 #### L1::QKt (Dot)
 
-ConvGen有计算限制，如果不满足这些最小size的限制，需要用户padiding到最小size。在这个约束条件下，我们计算一下(ping-pong: pp)：
-* L1=512KB 的支持上限：
-  * $ n = (512*1024-m*k*bpe*pp)/(m*bpe + k*bpe*pp)$
-    * when m=64, k=16, bpe=4, pp=2: n=1344
-    * when m=64, k=16, bpe=4, pp=1: n=1625
-    * when m=64, k=16, bpe=2, pp=2: n=2709
-    * when m=64, k=16, bpe=2, pp=1: n=3264
-* L1=1024KB 的支持上限：
-  * $ n = (1024*1024-m*k*bpe*pp)/(m*bpe + k*bpe*pp)$
-  * when m=64, k=16, bpe=4, pp=2: n=2709
-  * when m=64, k=16, bpe=4, pp=1: n=3264
-  * when m=64, k=16, bpe=2, pp=2: n=5440
-  * when m=64, k=16, bpe=2, pp=1: n=6540
+计算softmax的时候需要计算ReduceMax，要保证1D指令计算效率的话，我们需要保证FP16时$min(m)=64$，EF32时$min(m)=32$; 另外ConvGen有计算限制，如果不满足这些最小size的限制，需要用户padiding到最小size。比如 $min(k)=16$, $min(m)=32$(这个是性能限制不是功能限制), 在这个约束条件下，我们计算一下 $n=(1024*1024-m*k*bpe*pp)/(m*bpe + k*bpe*pp)$其中 pp=ping-pong。L1 Size在pavo和dorado上分别是512KB和1MB，但要预留16K stack。
 
-这样可以得到一些结论：通过L1交换数据的方案，在Pavo上没有机会支持到$msl_n=4096$；而在Dorado上只有混精模式下可以开ping-pong支持$msl_n=4096$（SD模型 512x512分辨率下的msl）。__接下来我们只讨论Dorado混精下，msl=4096时的支持方案;同时基于L1交换数据数据的方案由于支持的范围较小，实现这个方案优先级定为P2__。
+```python
+L1-Forward: size=496.0KB, m=32, k=16, bpe=4, pp=2: n=1968.0
+L1-Forward: size=496.0KB, m=32, k=16, bpe=4, pp=1: n=2634.6
+L1-Forward: size=496.0KB, m=32, k=16, bpe=2, pp=2: n=3952.0
+L1-Forward: size=496.0KB, m=32, k=16, bpe=2, pp=1: n=5280.0
+
+L1-Forward: size=496.0KB, m=64, k=16, bpe=4, pp=2: n=1301.3
+L1-Forward: size=496.0KB, m=64, k=16, bpe=4, pp=1: n=1574.4
+L1-Forward: size=496.0KB, m=64, k=16, bpe=2, pp=2: n=2624.0
+L1-Forward: size=496.0KB, m=64, k=16, bpe=2, pp=1: n=3161.6
+
+L1-Forward: size=1008.0KB, m=32, k=16, bpe=4, pp=2: n=4016.0
+L1-Forward: size=1008.0KB, m=32, k=16, bpe=4, pp=1: n=5365.3
+L1-Forward: size=1008.0KB, m=32, k=16, bpe=2, pp=2: n=8048.0
+L1-Forward: size=1008.0KB, m=32, k=16, bpe=2, pp=1: n=10741.3
+
+L1-Forward: size=1008.0KB, m=64, k=16, bpe=4, pp=2: n=2666.6
+L1-Forward: size=1008.0KB, m=64, k=16, bpe=4, pp=1: n=3212.8
+L1-Forward: size=1008.0KB, m=64, k=16, bpe=2, pp=2: n=5354.6
+L1-Forward: size=1008.0KB, m=64, k=16, bpe=2, pp=1: n=6438.4
+```
+
+这样可以得到一些结论：通过L1交换数据的方案，在Pavo上只有用FP16在不支持ping-pong的条件下，并且不可以打开MaskedFill才有机会支持到$msl_n=4096$；而在Dorado上有更多的机会可以支持$msl_n=4096$（SD模型 512x512分辨率下的msl）。__由于Pavo上的支持范围过于狭窄，接下来我们只讨论Dorado混精下，msl=4096时的支持方案;同时基于L1交换数据数据的方案由于支持的范围较小，实现这个方案优先级定为P2__。
 
 * L1 Tiling
   * 必须让b1=1，这样可以避免transpose操作，如果有空间剩余可以通过增加b0来调节。
@@ -439,97 +444,55 @@ ConvGen有计算限制，如果不满足这些最小size的限制，需要用户
   * out 在L1上从address=0x00开始分配，lhs和rhs依次在其后面分配，这样可以减少碎片。
   * L1上要预留16KB stack，注意无法使用完整的L1
   * 可能的切分方案(1)和(2)：
-      | |lhs  |rhs      |out    | |
+      | |lhs  |rhs      |out    |选择倾向|
       |-|-----|---------|-------|-|
-      |1|64x64|4096x16x2|64x4096|如果convgen可以输出layout{n,m}，选方案1|
-      |2|32x64|4096x32x2|32x4096|如果convgen只能输出layout{m,n}，选方案2|
+      |1|64x64|4096x16x2(256KB)|64x4096(512KB)|如果convgen可以输出layout{n,m}，选方案1|
+      |2|32x64|4096x32x2(512KB)|32x4096(256KB)|如果convgen只能输出layout{m,n}，选方案2|
+* 方案选择
+  * 方案一的可能性：
+    * $out[ 4096, 64 ] = ConvGenDot(rhs[ 4096, 16 ], lhs[ 64, 16] )$
+    * 交换lhs和rhs能够让ConvGen输出成我们想要的layout{n,m}
+  * 方案一的好处：
+    * 输出更大，尽量有效使用了L1，这样循环开销会变小。
+    * 消除了反复的transpose操作，__下图描述了需要反复transpose的原因__: ![Tux, the Linux mascot](/transformer/scale-maskfill-reducemax.png)
+    * FP16条件下一个VR可以保存64个元素，这样可以比较简单地高效发挥1D算力。
+  * 结论：暂定采用方案一
 
-方案的选择和后续计算有关，我们把全部计算流程走完，再讨论 L2 tiling。
+我们把全部计算流程走完，再讨论 L2 tiling。
 
-#### L1::Scale-Max
+#### L1::Scale-MaskFill-Max
 
-Softmax计算中需要的 Max 计算可以提前到这里和 Mul 一起完成:
+Softmax计算中需要的 Max 计算可以在前面计算结果保存在VR中的时期内完成，提前到这里和 Mul 一起完成。如果选项MaskedFill是需要的，那么要在mask-fill后计算最大值。
 
-* 方案一的计算过程：
-  * $inout[64,4096], row_max[64] = ScaleMaxKernel(inout[64, 4096])$
-  * inout 512KB无法clone出一个完整的buffer用于存放 transpose 的结果。
-  * Pseudocode
-    ```C++
-      int sub_view = 1024;
-      // alloc
-      void* MaxBuffer = alloc_l1(0x80000, 64 * sizeof(fp16));
-      void* Scratch = alloc_l1(0x80000+64*sizeof(fp16), 4096*sub_view*2);
+* 基于方案一的计算过程：
+  * $inout[ 4096，64 ], row_max[64] = ScaleMaskFillReduceMaxKernel(inout[ 4096, 64 ])$
+  * (1) 计算 mul，结果保存在VR中
+  * (2) 如果使能了MaskedFill，需要在L1上开一个临时buffer：$mask[1024, 64]$ 计算过程中需要用sdma反复Slice数据到L1（需要D2C-C2S瓶颈恐怕在IO上, D2C的带宽，或者C2S的访问冲突），计算结果在VR中，然后一边Store到L1，一边基于VR计算ReduceMax，需要将 vload inout, vload mask, vmul, compare, vstore这些操作进行流水优化。
+  * (3) inout=ReduceMax(inout)，写回L1上原来的位置。
 
-      int i = 0;
-      PingBuf[sub_view, 64] = Transpose(inout[64, 4096].view(:,i*sub_view:(i+1)*sub_view), sdma_vc0);
-      for (i = 1; i < 4096/sub_view; ++i) {
-        PongBuf[sub_view, 64] = Transpose(inout[64, 4096].view(:,i*sub_view:(i+1)*sub_view), sdma_vc1);
-        wait(sdma_vc0);
-        PingBuf, MaxBuffer = ScaleMax(PingBuf, MaxBuffer);
-        inout.view(:,(i-1)*sub_view:i*sub_view) = Transpose(PingBuf, sdma_vc0)
-        wait(sdma_vc0);
-        swap(PingBuf, PongBuf);
-        swap(sdma_vc0, sdma_vc1);
-      }
-      // last time
-      wait(sdma_vc0);
-      Scratch, MaxBuffer = ScaleMax(PingBuf, MaxBuffer);
-      inout.view(:, (i-1)*sub_view : i*sub_view) = Transpose(Scratch, sdma_vc0)
-      wait(sdma_vc0);
+#### L1::Softmax
 
-      return Scratch, MaxBuffer;
-      ```
-  * S2S transpose效率不高并且次数过多，性能堪忧。
-* 方案二的计算过程
-  * $scale[2048, 32, 2], row_max[32] = ScaleMaxKernel(in[32, 4096])$
-  * Pseudocode
-    ```C++
-      // 0x00            addr           L1_SIZE
-      // |----------------------------------------|
-      // | inout | max_buf | ...... | inout_trans |
-      // |----------------------------------------|
-      void* MaxBuffer = alloc_l1(inout.size, 64*sizeof(fp16));
+___这个过程中要注意数据精度问题___
 
-      int addr = L1_SIZE - in.size;
-      void *ScaleBuffer = alloc_l1(addr, in.size);
-      
-      int sub_view = 512
-      // 64 fp16 elements per VR
-      in[64, 2048] = Reshape(in[32, 4096]);
-      
-      //
-      int i = 0;
-      ScaleBuffer.view(i*sub_view : (i+1)*sub_view, :) = Transpose(in[64, 2048].view(:, i*sub_view : (i+1)*sub_view), sdma_vc0);
-      for (i = 1; i < 2048/sub_view; ++i) {
-        // prefetch next
-        ScaleBuffer.view(i*sub_view : (i+1)*sub_view, :) = Transpose(in[64, 2048].view(:, i*sub_view : (i+1)*sub_view), sdma_vc1);
-        wait(sdma_vc0);
-        ScaleBuffer.view((i-1)*sub_view : (i)*sub_view, :), MaxBuffer = ScaleMax(ScaleBuffer.view((i-1)*sub_view : (i)*sub_view, :), MaxBuffer);
-        swap(sdma_vc0, sdma_vc1);
-      }
-      // last
-      wait(sdma_vc0);
-      ScaleBuffer.view((i-1)*sub_view : (i)*sub_view, :), MaxBuffer = ScaleMax(ScaleBuffer.view((i-1)*sub_view : (i)*sub_view, :), MaxBuffer);
-
-      // compare odd and even
-      MaxBuffer[32] = CompareOddEven(MaxBuffer);
-
-      return ScaleBuffer, MaxBuffer;
-    ```
-
-
+* 以下计算在VR中完成：
+  * (1) [FP16] $x_{ij}=x_{ij}-max(i)$
+  * (2) [FP32] $e^{x_{ij}}$
+  * (3) [FP32] $sum(i)=\sum_{j=0}^{4096}{e^{x_{ij}}}$
+    * 也可以用2D指令完成： $sum[1, 64]=dot(lhs[1, 4096], rhs[4096, 64])$
+    * lhs={1.0F, 1.0F, 1.0F, ....}
+  * (4) [FP32] $result(i,j)=e^{x_{ij}} / sum(i)$
+  * (5) convert result form fp32 to fp16
+  * (6) store to L1
 
 ### MHA 算子实现：通过L3交换数据
 
 ### MHA 算子实现：通过L2交换数据
-
 
 #### MHA 算子实现：$Q$
 
 ## Multi-head Attention Gradient
 
 TODO
-
 
 dddd
 d
