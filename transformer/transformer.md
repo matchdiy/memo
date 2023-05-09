@@ -411,52 +411,40 @@ $msl_n$ 维度是后续Softmax计算中需要的完整维度，这个维度的�
 
 #### L1::QKt (Dot)
 
-计算softmax的时候需要计算ReduceMax，要保证1D指令计算效率的话，我们需要保证FP16时$min(m)=64$，EF32时$min(m)=32$; 另外ConvGen有计算限制，如果不满足这些最小size的限制，需要用户padiding到最小size。比如 $min(k)=16$, $min(m)=32$(这个是性能限制不是功能限制), 在这个约束条件下，我们计算一下 $n=(1024*1024-m*k*bpe*pp)/(m*bpe + k*bpe*pp)$其中 pp=ping-pong。L1 Size在pavo和dorado上分别是512KB和1MB，但要预留16K stack。
+计算softmax的时候需要计算ReduceMax，要保证1D指令计算效率的话，我们需要保证FP16时$min(m)=64$，EF32时$min(m)=32$; 另外ConvGen有计算限制，如果不满足这些最小size的限制，需要用户padiding到最小sizem，比如 $min(k)=16$，在这个约束条件下，我们计算一下 $n=(1024*1024-m*k*bpe*pp)/(m*bpe + k*bpe*pp)$其中 pp=ping-pong。L1 Size在pavo和dorado上分别是512KB和1MB，但要预留16K stack。
 
-```python
-L1-Forward: size=496.0KB, m=32, k=16, bpe=4, pp=2: n=1968.0
-L1-Forward: size=496.0KB, m=32, k=16, bpe=4, pp=1: n=2634.6
-L1-Forward: size=496.0KB, m=32, k=16, bpe=2, pp=2: n=3952.0
-L1-Forward: size=496.0KB, m=32, k=16, bpe=2, pp=1: n=5280.0
+|size|bpe|tile (m-k0_n-k1_m-n)|ping-pong|lhs size|rhs size|out size|L1 used|L1 utili|
+|----|---|--------------------|---------|--------|--------|--------|-------|-------:|
+|496.0 KB|4|1x64_4096x16_1x4096|1x2x1|0.2 KB|256.0 KB|16.0 KB|528.2 KB|106.50%|
+|496.0 KB|2|1x64_4096x16_1x4096|1x2x1|0.1 KB|128.0 KB|8.0 KB|264.1 KB|53.25%|
+|496.0 KB|2|8x64_4096x16_8x4096|1x2x1|1.0 KB|128.0 KB|64.0 KB|321.0 KB|64.72%|
+|496.0 KB|2|__16x64_4096x16_16x4096__|1x2x1|2.0 KB|128.0 KB|128.0 KB|386.0 KB|__77.82%__|
+|496.0 KB|2|32x64_4096x16_32x4096|1x2x1|4.0 KB|128.0 KB|256.0 KB|516.0 KB|104.03%|
+|1008.0 KB|4|1x64_4096x16_1x4096|1x2x1|0.2 KB|256.0 KB|16.0 KB|528.2 KB|52.41%|
+|1008.0 KB|4|16x64_4096x16_16x4096|1x2x1|4.0 KB|256.0 KB|256.0 KB|772.0 KB|76.59%|
+|1008.0 KB|4|32x64_4096x16_32x4096|1x2x1|8.0 KB|256.0 KB|512.0 KB|1032.0 KB|102.38%|
+|1008.0 KB|4|64x64_4096x16_64x4096|1x2x1|16.0 KB|256.0 KB|1024.0 KB|1552.0 KB|153.97%|
+|1008.0 KB|2|1x64_4096x16_1x4096|1x2x1|0.1 KB|128.0 KB|8.0 KB|264.1 KB|26.20%|
+|1008.0 KB|2|16x64_4096x16_16x4096|1x2x1|2.0 KB|128.0 KB|128.0 KB|386.0 KB|38.29%|
+|1008.0 KB|2|32x64_4096x16_32x4096|1x2x1|4.0 KB|128.0 KB|256.0 KB|516.0 KB|51.19%|
+|1008.0 KB|2|__64x64_4096x16_64x4096__|1x2x1|8.0 KB|128.0 KB|512.0 KB|776.0 KB|__76.98%__|
+|1008.0 KB|2|128x64_4096x16_128x4096|1x2x1|16.0 KB|128.0 KB|1024.0 KB|1296.0 KB|128.57%|
 
-L1-Forward: size=496.0KB, m=64, k=16, bpe=4, pp=2: n=1301.3
-L1-Forward: size=496.0KB, m=64, k=16, bpe=4, pp=1: n=1574.4
-L1-Forward: size=496.0KB, m=64, k=16, bpe=2, pp=2: n=2624.0
-L1-Forward: size=496.0KB, m=64, k=16, bpe=2, pp=1: n=3161.6
+通过L1交换数据的方案，Pavo上无法支持BPE=4，只能用混精来处理（如果输入数据是FP32或者是EF32的，那么需要先将其convert成FP16）；Dorado上是可以支持BPE=4，当使用混精时可以支持 $m=64$，刚好可以存满一个VR。由于第一个算子是个Dot计算，所以我们可以假设任何情况下将其转成 FP16/BF16 进行处理都可以达到精度要求。
 
-L1-Forward: size=1008.0KB, m=32, k=16, bpe=4, pp=2: n=4016.0
-L1-Forward: size=1008.0KB, m=32, k=16, bpe=4, pp=1: n=5365.3
-L1-Forward: size=1008.0KB, m=32, k=16, bpe=2, pp=2: n=8048.0
-L1-Forward: size=1008.0KB, m=32, k=16, bpe=2, pp=1: n=10741.3
-
-L1-Forward: size=1008.0KB, m=64, k=16, bpe=4, pp=2: n=2666.6
-L1-Forward: size=1008.0KB, m=64, k=16, bpe=4, pp=1: n=3212.8
-L1-Forward: size=1008.0KB, m=64, k=16, bpe=2, pp=2: n=5354.6
-L1-Forward: size=1008.0KB, m=64, k=16, bpe=2, pp=1: n=6438.4
-```
-
-这样可以得到一些结论：通过L1交换数据的方案，在Pavo上只有用FP16在不支持ping-pong的条件下，并且不可以打开MaskedFill才有机会支持到$msl_n=4096$；而在Dorado上有更多的机会可以支持$msl_n=4096$（SD模型 512x512分辨率下的msl）。__由于Pavo上的支持范围过于狭窄，接下来我们只讨论Dorado混精下，msl=4096时的支持方案;同时基于L1交换数据数据的方案由于支持的范围较小，实现这个方案优先级定为P2__。
+这样可以得到一些结论：使用混精实现这个算子的前提下Pavo和Dorado都可以基于L1方案支持 $msl=4096$，输入输出使用FP16/BF16，FP32/EF32输入时在本算子内部进行convert。(__大模型中BF16也很常见，我们统一用f16代表FP16和BF16__)。
 
 * L1 Tiling
+  |platform|lhs  |rhs      |out    |选择倾向|
+  |-|-----|---------|-------|-|
+  |Pavo  |16x64|4096x16x2(256KB)|16x4096(128KB)|需要convgen输出layout{n,m}|
+  |Dorado|64x64|4096x16x2(256KB)|64x4096(512KB)|需要convgen输出layout{n,m}|
   * 必须让b1=1，这样可以避免transpose操作，如果有空间剩余可以通过增加b0来调节。
   * lhs k 应该尽量大，最好是完整的dv，以便于减少DMA配置次数。
   * lhs和out不需要ping-pong，rhs需要ping-pong buffer
   * out 在L1上从address=0x00开始分配，lhs和rhs依次在其后面分配，这样可以减少碎片。
   * L1上要预留16KB stack，注意无法使用完整的L1
-  * 可能的切分方案(1)和(2)：
-      | |lhs  |rhs      |out    |选择倾向|
-      |-|-----|---------|-------|-|
-      |1|64x64|4096x16x2(256KB)|64x4096(512KB)|如果convgen可以输出layout{n,m}，选方案1|
-      |2|32x64|4096x32x2(512KB)|32x4096(256KB)|如果convgen只能输出layout{m,n}，选方案2|
-* 方案选择
-  * 方案一的可能性：
-    * $out[ 4096, 64 ] = ConvGenDot(rhs[ 4096, 16 ], lhs[ 64, 16] )$
-    * 交换lhs和rhs能够让ConvGen输出成我们想要的layout{n,m}
-  * 方案一的好处：
-    * 输出更大，尽量有效使用了L1，这样循环开销会变小。
-    * 消除了反复的transpose操作，__下图描述了需要反复transpose的原因__: ![Tux, the Linux mascot](/transformer/scale-maskfill-reducemax.png)
-    * FP16条件下一个VR可以保存64个元素，这样可以比较简单地高效发挥1D算力。
-  * 结论：暂定采用方案一
+  * $out[ 4096, 64 ] = ConvGenDot(rhs[ 4096, 16 ], lhs[ 64, 16] )$，交换lhs和rhs能够让ConvGen输出成我们想要的layout{n,m}，这样可以消除反复的transpose操作，__下图描述了需要反复transpose的原因__: ![Tux, the Linux mascot](/transformer/scale-maskfill-reducemax.png)
 
 我们把全部计算流程走完，再讨论 L2 tiling。
 
@@ -464,41 +452,35 @@ L1-Forward: size=1008.0KB, m=64, k=16, bpe=2, pp=1: n=6438.4
 
 Softmax计算中需要的 Max 计算可以在前面计算结果保存在VR中的时期内完成，提前到这里和 Mul 一起完成。如果选项MaskedFill是需要的，那么要在mask-fill后计算最大值。
 
-* 基于方案一的计算过程：
-  * $inout[ 4096，64 ], row_max[64] = ScaleMaskFillReduceMaxKernel(inout[ 4096, 64 ])$
+* 一下计算在VR中完成：
+  * $m=64$ 是 $m=16$ 的特例，我们基于$m=16$描述计算过程。
+  * $inout[ 4096，16 ], row_max[16] = ScaleMaskFillReduceMaxKernel(inout[ 4096, 16 ])$, 数据类型为FP16/BF16
   * (1) 计算 mul，结果保存在VR中
-  * (2) 如果使能了MaskedFill，需要在L1上开一个临时buffer：$mask[1024, 64]$ 计算过程中需要用sdma反复Slice数据到L1（需要D2C-C2S瓶颈恐怕在IO上, D2C的带宽，或者C2S的访问冲突），计算结果在VR中，然后一边Store到L1，一边基于VR计算ReduceMax，需要将 vload inout, vload mask, vmul, compare, vstore这些操作进行流水优化。
+  * (2) 如果使能了MaskedFill，需要在L1上开一个临时buffer，比如：$mask[1024, 16]$ 计算过程中需要用sdma反复Slice数据到L1，计算结果在VR中，然后一边Store到L1，一边基于VR计算ReduceMax，需要将 vload inout, vload mask, vmul, compare, vstore 这些操作进行流水优化。
   * (3) inout=ReduceMax(inout)，写回L1上原来的位置。
 
 #### L1::Softmax
 
-___这个过程中要注意数据精度问题___
+为了保证精度这里超越函数计算需要使用f32，这样带来的问题就是计算的中间结果无法写回L1 的 inoput buffer。我们初步打算利用VACC（128KB）寄存器来完成中间结果的保存。
 
-* 以下计算在VR中完成：
-  * (1) [FP16] $x_{ij}=x_{ij}-max(i)$
-  * (2) [FP32] $e^{x_{ij}}$
-  * (3) [FP32] $sum(i)=\sum_{j=0}^{4096}{e^{x_{ij}}}$
-    * 也可以用2D指令完成： $sum[1, 64]=dot(lhs[1, 4096], rhs[4096, 64])$
-    * lhs={1.0F, 1.0F, 1.0F, ....}
-  * (4) [FP32] $result(i,j)=e^{x_{ij}} / sum(i)$
-  * (5) convert result form fp32 to fp16
-  * (6) store to L1
-
-### MHA 算子实现：通过L3交换数据
+* 以下计算在VR/VA中完成：
+  * [VR] $x_{ij}=x_{ij}-max_i$, datatype=f16
+  * [VR] $x_{ij} = convert(x_{ij})$, datatype=f16 to f32
+  * [VR] $e^{x_{ij}}=exp(x_{ij})$, datatype=f32
+  * [VA] $e^{x_{ij}}=move(e^{x_{ij}})$, datatype=f32
+    * _MOVVR2VA_，把VR中计算出来的exp保存到VA中，直到可以计算sum为止。同时保留已经计算出来的结果。
+    * 编译器可能指允许使用一半，超过了会发生spilling。用汇编吗？可能也没有多少代码，用汇编也许是更好的。
+  * [VA] $sum_i=sum(e^{x_{ij}, dim=i})$
+    * _MOP.MADD VACC0,VACC0,VACC4_，
+  * [VR] $result(i,j)=e^{x_{ij}} / sum(i)$ datatype=f32
+    * 将 $e^{x_{ij}}$ 和 对应的 $sum_i$ 从VA中取出到VR，然后计算最终结果。
+  * [VR] convert result form fp32 to fp16
+  * [VR] store to L1 (inout)
 
 ### MHA 算子实现：通过L2交换数据
 
-#### MHA 算子实现：$Q$
+### MHA 算子实现：通过L3交换数据
 
 ## Multi-head Attention Gradient
 
 TODO
-
-dddd
-d
-d
-d
-d
-d
-d
-d

@@ -142,27 +142,30 @@ class Layer_norm(torch.nn.Module):
 
 
 def l1_forward_n(size, m, k, pp, bpe):
-  n = (size - m*k*bpe*pp)/(m*bpe + k*bpe*pp)
+  lhs_k = 64
+  n = (size - m*lhs_k*bpe*pp)/(m*bpe + k*bpe*pp)
   print("L1-Forward: size={0}KB, m={1}, k={2}, bpe={3}, pp={4}: n={5}".format(
     size/1024, m, k, bpe, pp, n))
 
-def l1_forward(size, lhs, rhs, out, bpe):
-  print("{}x{}_{}x{}_{}x{}_{}x{}x{}".format(lhs[0], lhs[1], rhs[0], rhs[1], 
-                                    out[0], out[1], lhs[2], rhs[2], out[2]))
+def l1_forward(size, lhs, rhs, out, bpe, with_head=False):
   lhs_size = lhs[0] * lhs[1] * bpe
   rhs_size = rhs[0] * rhs[1] * bpe
   out_size = out[0] * out[1] * bpe
-  print(" - lhs size={}KB, buffer={}KB".format(int(lhs_size//1024), int(lhs_size//1024) * lhs[2]))
-  print(" - rhs size={}KB, buffer={}KB".format(int(rhs_size//1024), int(rhs_size//1024) * rhs[2]))
-  print(" - out size={}KB, buffer={}KB".format(int(out_size//1024), int(out_size//1024) * out[2]))
+  used = lhs_size*lhs[2] + rhs_size*rhs[2] + out_size*out[2]
+  utili = 100.0 * used / size
+  
+  # print("{:>4d}x{:_<4d}_{:_>4d}x{:_<4d}_{:_>4d}x{:_<4d}_{}x{}x{}, {:6.1f}KB({:6.1f}KB), {:6.1f}KB({:6.1f}KB), {:6.1f}KB({:6.1f}KB), util={:6.1f}%".format(
+  #   lhs[0], lhs[1], rhs[0], rhs[1], out[0], out[1], lhs[2], rhs[2], out[2], 
+  #   lhs_size / 1024, lhs_size/1024 * lhs[2], 
+  #   rhs_size / 1024, rhs_size/1024 * rhs[2], 
+  #   out_size / 1024, out_size/1024 * out[2], utili))
+  if with_head:
+    print("|size|bpe|tile (m-k0_n-k1_m-n)|ping-pong|lhs size|rhs size|out size|L1 used|L1 utili|")
+    print("|----|---|--------------------|---------|--------|--------|--------|-------|-------:|")
 
-  utili = (lhs_size*lhs[2] + rhs_size*rhs[2] + out_size) / size
-  print(" - memory used utilization: {}".format(utili))
-  if utili < 1.0:
-    print("OK")
-  else:
-    print("NG")
-
+  print("|{} KB|{}|{}x{}_{}x{}_{}x{}|{}x{}x{}|{:.1f} KB|{:.1f} KB|{:.1f} KB|{:.1f} KB|{:.2f}%|".format(
+    size/1024, bpe, lhs[0], lhs[1], rhs[0], rhs[1], out[0], out[1], lhs[2], rhs[2], out[2], 
+    lhs_size / 1024, rhs_size / 1024, out_size / 1024, used / 1024, utili))
 
 
 if __name__ == '__main__':
@@ -174,37 +177,47 @@ if __name__ == '__main__':
   msl = 128
   head_nums = 8
 
-  l1_forward_n(size=512*1024-16*1024, m=1, k=16, pp=2, bpe=4)
-  l1_forward_n(size=512*1024-16*1024, m=1, k=16, pp=1, bpe=4)
+
   l1_forward_n(size=512*1024-16*1024, m=1, k=16, pp=2, bpe=2)
-  l1_forward_n(size=512*1024-16*1024, m=1, k=16, pp=1, bpe=2)
-
+  l1_forward_n(size=512*1024-16*1024, m=8, k=16, pp=2, bpe=2)
   l1_forward_n(size=512*1024-16*1024, m=16, k=16, pp=2, bpe=4)
-  l1_forward_n(size=512*1024-16*1024, m=16, k=16, pp=1, bpe=4)
   l1_forward_n(size=512*1024-16*1024, m=16, k=16, pp=2, bpe=2)
-  l1_forward_n(size=512*1024-16*1024, m=16, k=16, pp=1, bpe=2)
-
-  l1_forward_n(size=512*1024-16*1024, m=32, k=16, pp=2, bpe=4)
-  l1_forward_n(size=512*1024-16*1024, m=32, k=16, pp=1, bpe=4)
   l1_forward_n(size=512*1024-16*1024, m=32, k=16, pp=2, bpe=2)
-  l1_forward_n(size=512*1024-16*1024, m=32, k=16, pp=1, bpe=2)
   l1_forward_n(size=512*1024-16*1024, m=64, k=16, pp=2, bpe=4)
-  l1_forward_n(size=512*1024-16*1024, m=64, k=16, pp=1, bpe=4)
   l1_forward_n(size=512*1024-16*1024, m=64, k=16, pp=2, bpe=2)
-  l1_forward_n(size=512*1024-16*1024, m=64, k=16, pp=1, bpe=2)
-
-  l1_forward_n(size=1024*1024-16*1024, m=32, k=16, pp=2, bpe=4)
-  l1_forward_n(size=1024*1024-16*1024, m=32, k=16, pp=1, bpe=4)
-  l1_forward_n(size=1024*1024-16*1024, m=32, k=16, pp=2, bpe=2)
-  l1_forward_n(size=1024*1024-16*1024, m=32, k=16, pp=1, bpe=2)
-  l1_forward_n(size=1024*1024-16*1024, m=64, k=16, pp=2, bpe=4)
-  l1_forward_n(size=1024*1024-16*1024, m=64, k=16, pp=1, bpe=4)
-  l1_forward_n(size=1024*1024-16*1024, m=64, k=16, pp=2, bpe=2)
-  l1_forward_n(size=1024*1024-16*1024, m=64, k=16, pp=1, bpe=2)
-
-  l1_forward(size=1024*1024, lhs=[32, 64, 1], rhs=[4096, 32, 2], out=[32, 4096, 1], bpe=2)
-  l1_forward(size=1024*1024, lhs=[64, 64, 1], rhs=[4096, 16, 2], out=[64, 4096, 1], bpe=2)
   
+  # l1_forward_n(size=1024*1024-16*1024, m=1, k=16, pp=2, bpe=4)
+  # l1_forward_n(size=1024*1024-16*1024, m=1, k=16, pp=1, bpe=4)
+  # l1_forward_n(size=1024*1024-16*1024, m=1, k=16, pp=2, bpe=2)
+  # l1_forward_n(size=1024*1024-16*1024, m=1, k=16, pp=1, bpe=2)
+  # l1_forward_n(size=1024*1024-16*1024, m=32, k=16, pp=2, bpe=4)
+  # l1_forward_n(size=1024*1024-16*1024, m=32, k=16, pp=1, bpe=4)
+  # l1_forward_n(size=1024*1024-16*1024, m=32, k=16, pp=2, bpe=2)
+  # l1_forward_n(size=1024*1024-16*1024, m=32, k=16, pp=1, bpe=2)
+  # l1_forward_n(size=1024*1024-16*1024, m=64, k=16, pp=2, bpe=4)
+  # l1_forward_n(size=1024*1024-16*1024, m=64, k=16, pp=1, bpe=4)
+  # l1_forward_n(size=1024*1024-16*1024, m=64, k=16, pp=2, bpe=2)
+  # l1_forward_n(size=1024*1024-16*1024, m=64, k=16, pp=1, bpe=2)
+
+  l1_forward(size=512*1024-16*1024, lhs=[ 1, 64, 1], rhs=[4096, 16, 2], out=[ 1, 4096, 1], bpe=4, with_head=True)
+  l1_forward(size=512*1024-16*1024, lhs=[ 1, 64, 1], rhs=[4096, 16, 2], out=[ 1, 4096, 1], bpe=2)
+  l1_forward(size=512*1024-16*1024, lhs=[ 8, 64, 1], rhs=[4096, 16, 2], out=[ 8, 4096, 1], bpe=2)
+  l1_forward(size=512*1024-16*1024, lhs=[16, 64, 1], rhs=[4096, 16, 2], out=[16, 4096, 1], bpe=2)
+  l1_forward(size=512*1024-16*1024, lhs=[32, 64, 1], rhs=[4096, 16, 2], out=[32, 4096, 1], bpe=2)
+  
+
+  l1_forward(size=1024*1024-16*1024, lhs=[ 1, 64, 1], rhs=[4096, 16, 2], out=[ 1, 4096, 1], bpe=4)
+  l1_forward(size=1024*1024-16*1024, lhs=[16, 64, 1], rhs=[4096, 16, 2], out=[16, 4096, 1], bpe=4)
+  l1_forward(size=1024*1024-16*1024, lhs=[32, 64, 1], rhs=[4096, 16, 2], out=[32, 4096, 1], bpe=4)
+  l1_forward(size=1024*1024-16*1024, lhs=[64, 64, 1], rhs=[4096, 16, 2], out=[64, 4096, 1], bpe=4)
+
+  l1_forward(size=1024*1024-16*1024, lhs=[ 1, 64, 1], rhs=[4096, 16, 2], out=[ 1, 4096, 1], bpe=2)
+  l1_forward(size=1024*1024-16*1024, lhs=[16, 64, 1], rhs=[4096, 16, 2], out=[16, 4096, 1], bpe=2)
+  l1_forward(size=1024*1024-16*1024, lhs=[32, 64, 1], rhs=[4096, 16, 2], out=[32, 4096, 1], bpe=2)
+  l1_forward(size=1024*1024-16*1024, lhs=[64, 64, 1], rhs=[4096, 16, 2], out=[64, 4096, 1], bpe=2)
+  l1_forward(size=1024*1024-16*1024, lhs=[128, 64, 1], rhs=[4096, 16, 2], out=[128, 4096, 1], bpe=2)
+
+
   ### Test 1
   # test_embedding(None)
   # test_embedding(1.0)
