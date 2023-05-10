@@ -39,10 +39,10 @@
 |$batch * msl$             |$M$               |     |             |
 |vocab size                |$vocabs$          |50257|dataset base|
 |head number               |$head$            | 8   |    |
-|dimension of key and query|$d_k$             | 64  |    |
-|dimension of value        |$d_v$             | 64  |$d_k=d_v$|
-|dimension of model        |$d_{\text{model}}$| 512 |$d_{\text{model}}=h \cdot d_v$|
-|dimension of feed forward |$d_{\text{ff}}$   | 2048|    |
+|dimension of key and query|$d_k$             | 64(SD=40) | $d_v = d_{\text{model}} \div head$   |
+|dimension of value        |$d_v$             | 64(SD=40) |$d_k=d_v$|
+|dimension of model        |$d_{\text{model}}$| 512(SD=320) |embedding table size|
+|dimension of feed forward |$d_{\text{ff}}$   | 2048 |    |
 |feature                   |                  | |[ $batch$, $msl$ ]|
 |query                     |Q                 | |[ $batch$, $src\_sl$, $d_{\text{model}}$ ] or [ $batch$, $msl$, $d_{\text{model}}$ ]|
 |key                       |K                 | |[ $batch$, $tgt\_sl$, $d_{\text{model}}$ ] or [ $batch$, $msl$, $d_{\text{model}}$ ]|
@@ -411,7 +411,7 @@ $msl_n$ 维度是后续Softmax计算中需要的完整维度，这个维度的�
 
 #### L1::QKt (Dot)
 
-计算softmax的时候需要计算ReduceMax，要保证1D指令计算效率的话，我们需要保证FP16时$min(m)=64$，EF32时$min(m)=32$; 另外ConvGen有计算限制，如果不满足这些最小size的限制，需要用户padiding到最小sizem，比如 $min(k)=16$，在这个约束条件下，我们计算一下 $n=(1024*1024-m*k*bpe*pp)/(m*bpe + k*bpe*pp)$其中 pp=ping-pong。L1 Size在pavo和dorado上分别是512KB和1MB，但要预留16K stack。
+ConvGen有计算限制，如果不满足这些最小size的限制，需要用户padiding到最小sizem，比如 $min(k)=16$，在这个约束条件下，我们计算一下 $n=(1024*1024-m*k*bpe*pp)/(m*bpe + k*bpe*pp)$其中 pp=ping-pong。L1 Size在pavo和dorado上分别是512KB和1MB，但要预留16K stack。这里使用 $d_k=64$进行的计算，实际上SD模型的$d_k=40$，需要padding到48
 
 |size|bpe|tile (m-k0_n-k1_m-n)|ping-pong|lhs size|rhs size|out size|L1 used|L1 utili|
 |----|---|--------------------|---------|--------|--------|--------|-------|-------:|
@@ -476,6 +476,36 @@ Softmax计算中需要的 Max 计算可以在前面计算结果保存在VR中的
     * 将 $e^{x_{ij}}$ 和 对应的 $sum_i$ 从VA中取出到VR，然后计算最终结果。
   * [VR] convert result form fp32 to fp16
   * [VR] store to L1 (inout)
+
+#### L1::Linear
+
+* 计算公式：
+  $$
+    QK^T[batch, msl_m, head, d_v] = Dot(Attn[batch, msl_m, head, msl_n], V[batch, msl_n, head, d_v], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{1\}, out\_batch\_dims=\{0,2\})
+  $$
+
+* L1 Tiling
+
+|size|bpe|tile (m-k0_n-k1_m-n)|ping-pong|lhs size|rhs size|out size|L1 used|L1 utili|
+|----|---|--------------------|---------|--------|--------|--------|-------|-------:|
+|496.0 KB|2|16x4096_4096x40_16x40|1x1x1|128.0 KB|320.0 KB|1.2 KB|449.2 KB|90.57%|
+|496.0 KB|2|__16x4096_2048x40_16x40__|1x2x1|128.0 KB|160.0 KB|1.2 KB|449.2 KB|__90.57%__|
+|496.0 KB|2|16x4096_1024x40_16x40|1x2x1|128.0 KB|80.0 KB|1.2 KB|289.2 KB|58.32%|
+|1008.0 KB|2|64x4096_4096x40_64x40|1x1x1|512.0 KB|320.0 KB|5.0 KB|837.0 KB|83.04%|
+|1008.0 KB|2|__64x4096_2048x40_64x40__|1x2x1|512.0 KB|160.0 KB|5.0 KB|837.0 KB|__83.04%__|
+|1008.0 KB|2|64x4096_1024x40_64x40|1x2x1|512.0 KB|80.0 KB|5.0 KB|677.0 KB|67.16%|
+
+* 计算
+  * $out[ b0, m, 1, d_v] = Dot(attn[ b0, m, 1, msl_n ], v[ b0, msl_n, 1, d_v ])$
+  * 在SD模型中 d_v=40， 那么这里的计算无论是否切reduce维度都是可以放下的，但是如果d_v=64的话就必须要切rhs的reduce维度。为了保证通用性，以及支持L2上更灵活的切分方式，希望这里仍旧按照切rhs的reduce维度进行实现，这种条件下是需要开ping-pong的。
+  * out 写回L2，至此完成了L1上的一次完整MHA，接下来就是继续从L2读取后续的切片反复这个过程。
+
+#### L2::QKt (Dot)
+
+|level|size|bpe|tile (m-k0_n-k1_m-n)|ping-pong|lhs size|rhs size|out size|L1 used|L1 utili|
+|-----|----|---|--------------------|---------|--------|--------|--------|-------|-------:|
+| L1  |496.0 KB|2|__16x64_4096x16_16x4096__|1x2x1|2.0 KB|128.0 KB|128.0 KB|386.0 KB|__77.82%__|
+| L1  |1008.0 KB|2|__64x64_4096x16_64x4096__|1x2x1|8.0 KB|128.0 KB|512.0 KB|776.0 KB|__76.98%__|
 
 ### MHA 算子实现：通过L2交换数据
 

@@ -199,6 +199,7 @@ if __name__ == '__main__':
   # l1_forward_n(size=1024*1024-16*1024, m=64, k=16, pp=2, bpe=2)
   # l1_forward_n(size=1024*1024-16*1024, m=64, k=16, pp=1, bpe=2)
 
+  ## QKt
   l1_forward(size=512*1024-16*1024, lhs=[ 1, 64, 1], rhs=[4096, 16, 2], out=[ 1, 4096, 1], bpe=4, with_head=True)
   l1_forward(size=512*1024-16*1024, lhs=[ 1, 64, 1], rhs=[4096, 16, 2], out=[ 1, 4096, 1], bpe=2)
   l1_forward(size=512*1024-16*1024, lhs=[ 8, 64, 1], rhs=[4096, 16, 2], out=[ 8, 4096, 1], bpe=2)
@@ -216,6 +217,14 @@ if __name__ == '__main__':
   l1_forward(size=1024*1024-16*1024, lhs=[32, 64, 1], rhs=[4096, 16, 2], out=[32, 4096, 1], bpe=2)
   l1_forward(size=1024*1024-16*1024, lhs=[64, 64, 1], rhs=[4096, 16, 2], out=[64, 4096, 1], bpe=2)
   l1_forward(size=1024*1024-16*1024, lhs=[128, 64, 1], rhs=[4096, 16, 2], out=[128, 4096, 1], bpe=2)
+
+  ## last linear
+  l1_forward(size=512*1024-16*1024, lhs=[16, 4096, 1], rhs=[4096, 40, 1], out=[16, 40, 1], bpe=2, with_head=True)
+  l1_forward(size=512*1024-16*1024, lhs=[16, 4096, 1], rhs=[2048, 40, 2], out=[16, 40, 1], bpe=2)
+  l1_forward(size=512*1024-16*1024, lhs=[16, 4096, 1], rhs=[1024, 40, 2], out=[16, 40, 1], bpe=2)
+  l1_forward(size=1024*1024-16*1024, lhs=[64, 4096, 1], rhs=[4096, 40, 1], out=[64, 40, 1], bpe=2)
+  l1_forward(size=1024*1024-16*1024, lhs=[64, 4096, 1], rhs=[2048, 40, 2], out=[64, 40, 1], bpe=2)
+  l1_forward(size=1024*1024-16*1024, lhs=[64, 4096, 1], rhs=[1024, 40, 2], out=[64, 40, 1], bpe=2)
 
 
   ### Test 1
