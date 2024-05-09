@@ -301,39 +301,42 @@ class MultiHeadedAttention(torch.nn.Module):
 
 ## MHA 计算过程以及精度
 
-* __(1) 计算Q，K，V三个变量，他们是 MultHeadAtten 的输入，不需要融合进来__
+* __(1) 计算Q，K，V三个变量，他们是 MultHeadAtten 的输入, $Reduce_{\text{dim}}==d_{\text{model}}$__
 
 $$
-Q[ batch, msl, d_{\text{model}} ] = Dot(Input[ batch, msl, d_{\text{model}} ], QW[ d_{\text{model}}, d_{\text{model}} ])
-$$
-
-$$
-K[ batch, msl, d_{\text{model}} ] = Dot(Input[ batch, msl, d_{\text{model}} ], WK[ d_{\text{model}}, d_{\text{model}} ])
+Q[ batch, msl, head, d_q ] = Dot(Input[ batch, msl, d_{\text{model}} ], QW[ d_{\text{model}}, head * d_q ])
 $$
 
 $$
-V[ batch, msl, d_{\text{model}} ] = Dot(Input[ batch, msl, d_{\text{model}} ], WV[ d_{\text{model}}, d_{\text{model}} ])
+K[ batch, msl, head, d_k ] = Dot(Input[ batch, msl, d_{\text{model}} ], WK[ d_{\text{model}}, head * d_k ])
+$$
+
+$$
+V[ batch, msl, head, d_v ] = Dot(Input[ batch, msl, d_{\text{model}} ], WV[ d_{\text{model}}, head * d_v ])
 $$
 
 * __(2) 拆出 $head$__
 
 $$
-Q[ batch, msl, head, d_k ] = Reshape(Q[ batch, msl, d_{\text{model}} ])
+Q[ batch, msl, head, d_q ] = Reshape(Q[ batch, msl, head * d_q ])
 $$
 
 $$
-K[ batch, msl, head, d_k ] = Reshape(K[ batch, msl, d_{\text{model}} ])
+K[ batch, msl, head, d_k ] = Reshape(K[ batch, msl, head * d_k ])
 $$
 
 $$
-V[ batch, msl, head, d_v ] = Reshape(V[ batch, msl, d_{\text{model}} ])
+V[ batch, msl, head, d_v ] = Reshape(V[ batch, msl, head * d_v ])
 $$
+
+只从有了group head算法后，K和V的head只会保留部分通道，计算的时候broadcast后再计算。
 
 * __(3) 计算 $QK^T$__
   * 计算式
   $$
   QK^T[ batch, msl_m, head, msl_n ] = Dot(Q[ batch, msl_m, head, d_k ], K[ batch, msl_n, head, d_k ], lhs\_batch\_dims=\{0,2\}, rhs\_batch\_dims=\{0,2\}, lhs\_contracting\_dims=\{3\}, rhs\_contracting\_dims=\{3\}, out\_batch\_dims=\{0,2\})
   $$
+  * 这是一个BatchDot，$batch和head$都是batch维度，reduce维度是 $d_q和d_k$，所以一般需要他们是相等的，这是为什么没有 $d_q$的原因。
   * _FIMXE：AMP时输入和输出都是 FP16_
   * 注意：$msl_m==msl_n$ 这里只是为了标注出不同的维度意义。
 
